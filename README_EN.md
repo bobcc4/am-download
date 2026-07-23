@@ -23,11 +23,13 @@ Thanks to the authors and contributors of the above projects.
 - Cover art embedding and animated artwork download
 - Post-download format conversion (FLAC / MP3 / Opus / WAV)
 - Custom file and folder naming
-- **Graphical interface** with sidebar tab navigation
+- **Graphical interface** with sidebar tab navigation (5 functional tabs)
 - **Bilingual UI** — switch between Chinese and English with one click
 - **One-click login** — Apple ID credentials cached automatically
 - **Environment self-check** — automatic detection of Docker, images, and service status
 - **Built-in config editor** — edit and save configuration directly in the GUI
+- **FLAC/WAV format conversion** — recursive .m4a scanning with auto ffmpeg install
+- **Audio file renaming** — batch rename by track number or artist tags
 - **Real-time download progress** with persistent logging
 - **Docker image import/export** — use local .tar images for fast deployment without rebuilding
 - **Standalone EXE** — single-file packaging via PyInstaller
@@ -121,7 +123,7 @@ The system loads all `.tar` files in the directory and auto-matches tags using k
 
 ## GUI Usage
 
-The interface uses sidebar tab navigation with three tabs:
+The interface uses sidebar tab navigation with five tabs:
 
 ### Download
 
@@ -148,6 +150,24 @@ The interface uses sidebar tab navigation with three tabs:
 ### Config
 
 Built-in YAML editor — edit configuration directly and save. The Reload button re-reads the currently active config.
+
+### Convert
+
+| Component | Function |
+|-----------|----------|
+| Directory | Select folder containing .m4a files |
+| Format | Select output format: FLAC / WAV |
+| Start | Recursively scan and convert all .m4a files; skips already converted files |
+
+> Uses ffmpeg with libFLAC encoder. If ffmpeg is not installed, it can be automatically installed via winget.
+
+### Rename
+
+| Component | Function |
+|-----------|----------|
+| Directory | Select folder containing FLAC / WAV files |
+| Format | Select naming template: "TrackNumber. SongName" or "Artist - SongName" |
+| Rename | Recursively scan all .flac / .wav files, read tags via ffprobe, and rename |
 
 ### Language
 
@@ -177,6 +197,8 @@ The config file is located at `%LOCALAPPDATA%\AppleMusicDownloader\config.yaml`.
 
 | Setting | Description |
 |---------|-------------|
+| `media-user-token` | Apple Music media user token (needed for lyrics and AAC-LC) |
+| `storefront` | Account region code (e.g., `us`, `jp`, `cn`) |
 | `alac-max` | ALAC max sample rate: 192000 / 96000 / 48000 / 44100 |
 | `atmos-max` | Atmos max bitrate: 2768 / 2448 |
 | `aac-type` | AAC type: aac-lc / aac / aac-binaural / aac-downmix |
@@ -187,14 +209,21 @@ The config file is located at `%LOCALAPPDATA%\AppleMusicDownloader\config.yaml`.
 | `embed-lrc` | Embed lyrics in file |
 | `embed-cover` | Embed cover art in file |
 | `album-folder-format` | Album folder naming template |
+| `playlist-folder-format` | Playlist folder naming template |
 | `song-file-format` | Song file naming template |
+| `artist-folder-format` | Artist folder naming template (leave empty to skip) |
 | `convert-after-download` | Enable post-download format conversion |
 | `convert-format` | Target format: flac / mp3 / opus / wav / copy |
+| `convert-keep-original` | Keep original file after conversion |
+| `mv-audio-type` | MV audio type: atmos / ac3 / aac |
+| `mv-max` | MV max resolution, default 2160 |
 
 ### Naming Template Variables
 
 - Album folder: `{AlbumId}` `{AlbumName}` `{ArtistName}` `{ReleaseDate}` `{ReleaseYear}` `{UPC}` `{Copyright}` `{Quality}` `{Codec}` `{Tag}` `{RecordLabel}`
+- Playlist folder: `{PlaylistId}` `{PlaylistName}` `{ArtistName}` `{Quality}` `{Codec}` `{Tag}`
 - Song file: `{SongId}` `{SongNumer}` `{SongName}` `{DiscNumber}` `{TrackNumber}` `{Quality}` `{Codec}` `{Tag}`
+- Artist folder: `{ArtistId}` `{ArtistName}` `{UrlArtistName}`
 
 ## Project Structure
 

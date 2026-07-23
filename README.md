@@ -23,11 +23,13 @@
 - 支持封面嵌入、动画封面下载
 - 支持下载后格式转换（FLAC / MP3 / Opus / WAV）
 - 自定义文件名和文件夹命名
-- **GUI 图形界面**（侧边栏页签导航）
+- **GUI 图形界面**（侧边栏页签导航，5 个功能页签）
 - **中英文切换**（一键切换界面语言）
 - **一键登录**（Apple ID 凭据自动缓存）
 - **环境自检**（启动时自动检测 Docker、镜像、服务状态）
 - **内置配置编辑**（GUI 内直接编辑保存配置文件）
+- **FLAC/WAV 格式转换**（递归扫描 .m4a，支持自动安装 ffmpeg）
+- **音频文件重命名**（按编号或艺术家标签批量重命名）
 - **下载进度实时显示**（日志持久化保存）
 - **Docker 镜像导入/导出**（支持本地 .tar 镜像文件，免构建快速部署）
 - **单文件打包**（PyInstaller 打包为独立 EXE）
@@ -121,7 +123,7 @@ build.bat
 
 ## GUI 使用说明
 
-界面采用侧边栏页签导航，包含三个页签：
+界面采用侧边栏页签导航，包含五个页签：
 
 ### 下载
 
@@ -148,6 +150,24 @@ build.bat
 ### 配置
 
 内置 YAML 编辑器，可直接修改配置文件并保存。重新加载按钮可重读当前生效配置。
+
+### 转换
+
+| 组件 | 功能 |
+|------|------|
+| 目录选择 | 选择 .m4a 文件所在目录 |
+| 格式选择 | 选择目标输出格式：FLAC / WAV |
+| 开始转换 | 递归扫描目录下所有 .m4a 文件并转换，支持跳过已转换文件 |
+
+> 使用 ffmpeg 直接编码（libFLAC），无需额外管道。若系统未安装 ffmpeg，可自动通过 winget 安装。
+
+### 重命名
+
+| 组件 | 功能 |
+|------|------|
+| 目录选择 | 选择 FLAC / WAV 文件所在目录 |
+| 格式选择 | 选择命名模板：「编号. 音乐名」或「歌手 - 音乐名」 |
+| 执行重命名 | 递归扫描目录下所有 .flac / .wav 文件，通过 ffprobe 读取标签并重命名 |
 
 ### 语言切换
 
@@ -177,6 +197,8 @@ build.bat
 
 | 配置项 | 说明 |
 |--------|------|
+| `media-user-token` | Apple Music 媒体用户令牌（获取歌词和 AAC-LC 需要） |
+| `storefront` | 账号所属区域代码（如 `cn`、`us`、`jp`） |
 | `alac-max` | ALAC 最高采样率：192000 / 96000 / 48000 / 44100 |
 | `atmos-max` | Atmos 最高码率：2768 / 2448 |
 | `aac-type` | AAC 类型：aac-lc / aac / aac-binaural / aac-downmix |
@@ -187,14 +209,21 @@ build.bat
 | `embed-lrc` | 是否嵌入歌词 |
 | `embed-cover` | 是否嵌入封面 |
 | `album-folder-format` | 专辑文件夹命名格式 |
+| `playlist-folder-format` | 播放列表文件夹命名格式 |
 | `song-file-format` | 单曲文件命名格式 |
+| `artist-folder-format` | 艺术家文件夹命名格式（留空则不创建） |
 | `convert-after-download` | 下载后是否转换格式 |
 | `convert-format` | 转换目标格式：flac / mp3 / opus / wav / copy |
+| `convert-keep-original` | 转换后是否保留原始文件 |
+| `mv-audio-type` | MV 音频类型：atmos / ac3 / aac |
+| `mv-max` | MV 最高分辨率，默认 2160 |
 
 ### 文件名模板变量
 
 - 专辑文件夹：`{AlbumId}` `{AlbumName}` `{ArtistName}` `{ReleaseDate}` `{ReleaseYear}` `{UPC}` `{Copyright}` `{Quality}` `{Codec}` `{Tag}` `{RecordLabel}`
+- 播放列表文件夹：`{PlaylistId}` `{PlaylistName}` `{ArtistName}` `{Quality}` `{Codec}` `{Tag}`
 - 单曲文件：`{SongId}` `{SongNumer}` `{SongName}` `{DiscNumber}` `{TrackNumber}` `{Quality}` `{Codec}` `{Tag}`
+- 艺术家文件夹：`{ArtistId}` `{ArtistName}` `{UrlArtistName}`
 
 ## 项目结构
 

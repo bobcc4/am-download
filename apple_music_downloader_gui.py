@@ -46,6 +46,8 @@ REGISTRY_MIRROR = os.environ.get("REGISTRY_MIRROR", "docker.m.daocloud.io")
 DL_SRC = os.environ.get("DL_SRC", os.path.join(DATA_DIR, "assets", "apple-music-downloader"))
 DL_IMAGE = "apple-music-downloader:local"
 
+FLAC_EXE = os.environ.get("FLAC_EXE", os.path.join(DATA_DIR, "assets", "flac.exe"))
+
 
 def get_config_path():
     """返回配置文件路径：若不存在则从示例复制"""
@@ -74,6 +76,20 @@ def load_config_content():
         with open(path, 'r', encoding='utf-8') as f:
             return f.read()
     return ""
+
+
+def get_download_folder():
+    """根据 config.yaml 的 alac-save-folder 拼接实际下载目录"""
+    try:
+        content = load_config_content()
+        m = re.search(r'^alac-save-folder:\s*"?([^"\n\r]+)"?\s*$', content, re.MULTILINE)
+        if m:
+            folder = m.group(1).strip()
+            if folder:
+                return os.path.join(os.path.expanduser("~"), "Downloads", folder)
+    except Exception:
+        pass
+    return DOWNLOAD_DIR
 
 
 FONT_FAMILY = "Microsoft YaHei"
@@ -204,6 +220,38 @@ I18N = {
         "export_images": "导出镜像",
         "export_done": "导出完成",
         "export_failed": "导出失败",
+        "wrapper_restart": "重启 Wrapper",
+        "wrapper_restarting": "重启中...",
+        "tab_convert": "转换",
+        "convert_title": "FLAC 转换",
+        "convert_btn": "开始转换",
+        "convert_select_dir": "选择目录",
+        "convert_source_dir": "源目录: {path}",
+        "convert_scanning": "正在扫描文件...",
+        "convert_found": "找到 {count} 个 .m4a 文件",
+        "convert_converting": "正在转换: {file}",
+        "convert_done": "转换完成: {count} 个文件",
+        "convert_failed": "失败: {file}",
+        "convert_nothing": "未找到可转换的文件",
+        "convert_complete": "转换完毕，共处理 {total} 个文件",
+        "convert_skip_exists": "已存在，跳过: {file}",
+        "convert_running": "转换中...",
+        "tab_rename": "重命名",
+        "rename_title": "音频重命名",
+        "rename_btn": "执行重命名",
+        "rename_select_dir": "选择目录",
+        "rename_format_label": "格式:",
+        "rename_source_dir": "源目录: {path}",
+        "rename_scanning": "正在扫描文件...",
+        "rename_found": "找到 {count} 个可重命名文件",
+        "rename_nothing": "未找到 .flac / .wav 文件",
+        "rename_renaming": "重命名: {old} -> {new}",
+        "rename_done": "重命名完成: {count} 个文件",
+        "rename_failed": "失败: {file}",
+        "rename_complete": "重命名完毕，共处理 {total} 个文件",
+        "rename_no_tag": "跳过(缺少标签): {file}",
+        "rename_tpl_track": "编号. 音乐名",
+        "rename_tpl_artist": "歌手 - 音乐名",
     },
     "en": {
         "app_title": "Apple Music Downloader",
@@ -275,6 +323,38 @@ I18N = {
         "export_images": "Export Images",
         "export_done": "Export Done",
         "export_failed": "Export Failed",
+        "wrapper_restart": "Restart Wrapper",
+        "wrapper_restarting": "Restarting...",
+        "tab_convert": "Convert",
+        "convert_title": "FLAC Convert",
+        "convert_btn": "Start Convert",
+        "convert_select_dir": "Select Folder",
+        "convert_source_dir": "Source: {path}",
+        "convert_scanning": "Scanning files...",
+        "convert_found": "Found {count} .m4a files",
+        "convert_converting": "Converting: {file}",
+        "convert_done": "Converted: {count} files",
+        "convert_failed": "Failed: {file}",
+        "convert_nothing": "No convertible files found",
+        "convert_complete": "Conversion complete, total {total} files",
+        "convert_skip_exists": "Already exists, skip: {file}",
+        "convert_running": "Converting...",
+        "tab_rename": "Rename",
+        "rename_title": "Rename Audio",
+        "rename_btn": "Rename",
+        "rename_select_dir": "Select Dir",
+        "rename_format_label": "Format:",
+        "rename_source_dir": "Source: {path}",
+        "rename_scanning": "Scanning files...",
+        "rename_found": "Found {count} renamable files",
+        "rename_nothing": "No .flac / .wav files found",
+        "rename_renaming": "Rename: {old} -> {new}",
+        "rename_done": "Renamed: {count} files",
+        "rename_failed": "Failed: {file}",
+        "rename_complete": "Rename complete, total {total} files",
+        "rename_no_tag": "Skip (missing tag): {file}",
+        "rename_tpl_track": "TrackNumber. SongName",
+        "rename_tpl_artist": "Artist - SongName",
     },
 }
 
@@ -778,6 +858,18 @@ class AppPage(ctk.CTkFrame):
             except Exception:
                 pass
 
+    def _app_bind(self, callback):
+        """Bind a global click handler on the root window, returns bind id."""
+        return self.winfo_toplevel().bind("<Button-1>", callback, add="+")
+
+    def _app_unbind(self, bind_id):
+        """Remove a global click handler previously added via _app_bind."""
+        if bind_id:
+            try:
+                self.winfo_toplevel().unbind("<Button-1>", bind_id)
+            except Exception:
+                pass
+
 
 class SetupPage(AppPage):
     def __init__(self, parent, app):
@@ -864,8 +956,30 @@ class SetupPage(AppPage):
 
     def _start_docker(self):
         self.start_docker_btn.pack_forget()
-        self.log("Starting Docker Desktop...")
-        self.set_status("Waiting for Docker to start...")
+        self._try_launch_docker()
+        threading.Thread(target=self._wait_docker_and_continue, daemon=True).start()
+
+    def start_setup(self):
+        self.log_text.delete("1.0", "end")
+        self.set_progress(0)
+        self.retry_btn.pack_forget()
+        self.start_docker_btn.pack_forget()
+
+        # Check Docker daemon, auto-start if needed
+        if subprocess.call(["docker", "info"],
+                           stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL,
+                           startupinfo=_SI, creationflags=_CF) != 0:
+            self.log("Docker daemon not running, attempting to start...")
+            self.set_status("Starting Docker Desktop...")
+            self._try_launch_docker()
+            threading.Thread(target=self._wait_docker_and_continue, daemon=True).start()
+            return
+
+        self.log("Docker OK")
+        self._continue_setup()
+
+    def _try_launch_docker(self):
         docker_exe = os.path.join(os.environ.get("ProgramFiles", "C:\\Program Files"),
                                   "Docker", "Docker", "Docker Desktop.exe")
         if not os.path.isfile(docker_exe):
@@ -874,28 +988,23 @@ class SetupPage(AppPage):
         if os.path.isfile(docker_exe):
             subprocess.Popen([docker_exe], startupinfo=_SI, creationflags=_CF)
         else:
-            self.log("Docker Desktop not found. Please start Docker manually.")
-        threading.Thread(target=self._wait_docker, daemon=True).start()
+            self.log("Docker Desktop not found at known paths")
 
-    def _wait_docker(self):
-        for _ in range(60):
+    def _wait_docker_and_continue(self):
+        for i in range(60):
             time.sleep(2)
             if subprocess.call(["docker", "info"],
                                stdout=subprocess.DEVNULL,
                                stderr=subprocess.DEVNULL,
                                startupinfo=_SI, creationflags=_CF) == 0:
-                self.log("Docker is ready")
-                self.after(0, self.start_setup)
+                self.after(0, lambda: self.log("Docker is ready"))
+                self.after(0, self._continue_setup)
                 return
-        self.log("Docker did not start in time")
+        self.after(0, lambda: self.log("Docker did not start in time"))
+        self.after(0, lambda: self.set_status("Docker failed to start"))
         self.after(0, lambda: self.start_docker_btn.pack(pady=8))
 
-    def start_setup(self):
-        self.log_text.delete("1.0", "end")
-        self.set_progress(0)
-        self.retry_btn.pack_forget()
-        self.start_docker_btn.pack_forget()
-
+    def _continue_setup(self):
         need_wrapper = not _run("docker", "images", "-q", WRAPPER_IMAGE, silent=True)
         need_downloader = not _run("docker", "images", "-q", DL_IMAGE, silent=True)
 
@@ -903,7 +1012,6 @@ class SetupPage(AppPage):
             threading.Thread(target=self._run_setup, daemon=True).start()
             return
 
-        # Delay dialog so SetupPage renders first
         self.after(200, self._prompt_local_image)
 
     def _prompt_local_image(self):
@@ -933,7 +1041,6 @@ class SetupPage(AppPage):
 
     def _run_setup(self):
         steps = [
-            ("Docker", self._check_docker),
             ("Build Wrapper Image", self._check_wrapper),
             ("Build Downloader Image", self._check_downloader),
             ("Start Wrapper", self._start_wrapper),
@@ -1217,7 +1324,7 @@ class TabbedContainer(AppPage):
         self.tab_btns = {}
         sep = ctk.CTkFrame(self.sidebar, height=12, fg_color="transparent")
         sep.pack(fill="x")
-        self._tab_keys = [("download", "tab_download"), ("status", "tab_status"), ("config", "tab_config")]
+        self._tab_keys = [("download", "tab_download"), ("status", "tab_status"), ("config", "tab_config"), ("convert", "tab_convert"), ("rename", "tab_rename")]
         for key, i18n_key in self._tab_keys:
             btn = ctk.CTkButton(self.sidebar, text=self.t(i18n_key), anchor="w",
                                 fg_color="transparent", hover_color=c["input_bg"],
@@ -1256,6 +1363,14 @@ class TabbedContainer(AppPage):
         self.status_page = StatusPage(self.content, app)
         self.pages["status"] = self.status_page
         self.status_page.place(relx=0, rely=0, relwidth=1, relheight=1)
+
+        self.convert_page = ConvertPage(self.content, app)
+        self.pages["convert"] = self.convert_page
+        self.convert_page.place(relx=0, rely=0, relwidth=1, relheight=1)
+
+        self.rename_page = RenamePage(self.content, app)
+        self.pages["rename"] = self.rename_page
+        self.rename_page.place(relx=0, rely=0, relwidth=1, relheight=1)
 
         self.show_tab("download")
 
@@ -1306,7 +1421,6 @@ class MainPage(AppPage):
         self._log_queue = queue.Queue()
         self._flush_timer = None
         self._popup = None
-        self._popup_dismiss_id = None
         self._reposition_timer = None
         self._dl_proc = None
         self._downloading = False
@@ -1355,7 +1469,7 @@ class MainPage(AppPage):
                                         fg_color=c["input_bg"], text_color=c["text"],
                                         border_color=c["border"],
                                         font=ctk.CTkFont(family=f, size=13),
-                                        width=150)
+                                        width=150, justify="center")
         self._mode_entry.pack(side="left", padx=(0, 8))
         self._mode_entry.insert(0, self._mode_name("album"))
         self._mode_entry.configure(state="readonly")
@@ -1408,12 +1522,19 @@ class MainPage(AppPage):
                            font=ctk.CTkFont(family=f, size=12, weight="bold"),
                            text_color=c["text"]); lbl.pack(side="left"); self._reg(lbl, "output")
         clear_footer_btn = ctk.CTkButton(footer, text=self.t("clear"), width=48, height=22,
-                                         fg_color=c["card"], hover_color=c["divider"],
-                                         text_color=c["text_secondary"], corner_radius=4,
-                                         font=ctk.CTkFont(family=f, size=10),
-                                         command=self._clear_console)
+                                          fg_color=c["card"], hover_color=c["divider"],
+                                          text_color=c["text_secondary"], corner_radius=4,
+                                          font=ctk.CTkFont(family=f, size=10),
+                                          command=self._clear_console)
         clear_footer_btn.pack(side="right")
         self._reg(clear_footer_btn, "clear")
+
+        self._scroll_btn = ctk.CTkButton(footer, text="▼", width=28, height=22,
+                                          fg_color=c["card"], hover_color=c["divider"],
+                                          text_color=c["text_secondary"], corner_radius=4,
+                                          font=ctk.CTkFont(family=f, size=10),
+                                          command=self._toggle_scroll)
+        self._scroll_btn.pack(side="right", padx=(0, 4))
 
         self.status_bar = ctk.CTkFrame(self, fg_color=c["card"], height=26, corner_radius=0,
                                        border_color=c["divider"], border_width=1)
@@ -1426,7 +1547,7 @@ class MainPage(AppPage):
         self._status_text.pack(side="left", padx=10, pady=2); self._reg(self._status_text, "ready")
 
         self._output_path_label = ctk.CTkLabel(self.status_bar,
-                                               text=self.t("output_to", path=DOWNLOAD_DIR),
+                                               text=self.t("output_to", path=get_download_folder()),
                                                font=ctk.CTkFont(family=f, size=10),
                                                text_color=c["text_secondary"])
         self._output_path_label.pack(side="right", padx=(0, 10), pady=2)
@@ -1445,7 +1566,7 @@ class MainPage(AppPage):
         self._url_var.set("")
 
     def _open_output_dir(self):
-        os.startfile(DOWNLOAD_DIR)
+        os.startfile(get_download_folder())
 
     def _on_download_done(self):
         self._reset_download_state()
@@ -1463,6 +1584,24 @@ class MainPage(AppPage):
         self.console.delete("1.0", "end")
         self.console.configure(state="disabled")
         self._last_progress = False
+
+    def _toggle_scroll(self):
+        if self.console.yview()[1] >= 0.99:
+            self.console.see("1.0")
+            self._scroll_btn.configure(text="▼")
+        else:
+            self.console.see("end")
+            self._scroll_btn.configure(text="▲")
+        self._update_scroll_icon()
+
+    def _update_scroll_icon(self):
+        try:
+            if self.console.yview()[1] >= 0.99:
+                self._scroll_btn.configure(text="▲")
+            else:
+                self._scroll_btn.configure(text="▼")
+        except Exception:
+            pass
 
     def log(self, msg):
         self._log_queue.put(("log", msg))
@@ -1521,6 +1660,7 @@ class MainPage(AppPage):
             self.console.configure(state="disabled")
             if at_bottom:
                 self.console.see("end")
+            self._update_scroll_icon()
         self._flush_timer = self.after(100, self._flush_log)
 
     def on_show(self):
@@ -1542,7 +1682,7 @@ class MainPage(AppPage):
 
     def refresh_language(self):
         super().refresh_language()
-        self._output_path_label.configure(text=self.t("output_to", path=DOWNLOAD_DIR))
+        self._output_path_label.configure(text=self.t("output_to", path=get_download_folder()))
         current_key = self._mode_var.get()
         name = self._mode_name(current_key)
         self._mode_entry.configure(state="normal")
@@ -1578,13 +1718,9 @@ class MainPage(AppPage):
     def _show_mode_popup(self):
         if self._popup and self._popup.winfo_exists():
             self._popup.destroy()
-            self._popup = None
-        if self._popup_dismiss_id is not None:
-            try:
-                self.winfo_toplevel().unbind("<Button-1>", self._popup_dismiss_id)
-            except Exception:
-                pass
-            self._popup_dismiss_id = None
+        self._popup = None
+        self._app_unbind(getattr(self, '_popup_bind_id', None))
+        self._popup_bind_id = None
         if self._reposition_timer is not None:
             self.after_cancel(self._reposition_timer)
             self._reposition_timer = None
@@ -1592,16 +1728,11 @@ class MainPage(AppPage):
         c = self.app.colors
         f = FONT_FAMILY
 
-        popup = ctk.CTkToplevel(self)
-        popup.overrideredirect(True)
-        popup.transient(self.winfo_toplevel())
-        popup.configure(fg_color=c["surface"])
-        popup.configure(border_color=c["border"], border_width=1)
-
+        popup = ctk.CTkFrame(self, fg_color=c["surface"],
+                             border_color=c["border"], border_width=1,
+                             corner_radius=6)
         self._popup = popup
-
-        frame = ctk.CTkFrame(popup, fg_color="transparent")
-        frame.pack(fill="both", expand=True, padx=6, pady=6)
+        self._popup_bind_id = None
 
         def select(key, name):
             self._mode_var.set(key)
@@ -1612,16 +1743,12 @@ class MainPage(AppPage):
             self._on_mode_change(key)
             dismiss()
 
-        def dismiss(*args):
+        def dismiss():
             if self._reposition_timer is not None:
                 self.after_cancel(self._reposition_timer)
                 self._reposition_timer = None
-            if self._popup_dismiss_id is not None:
-                try:
-                    self.winfo_toplevel().unbind("<Button-1>", self._popup_dismiss_id)
-                except Exception:
-                    pass
-                self._popup_dismiss_id = None
+            self._app_unbind(self._popup_bind_id)
+            self._popup_bind_id = None
             if self._popup:
                 try:
                     self._popup.destroy()
@@ -1631,43 +1758,27 @@ class MainPage(AppPage):
 
         for i, (key, _name, _) in enumerate(MODE_SPECS):
             name = self._mode_name(key)
-            btn = ctk.CTkButton(frame, text=name, anchor="w",
+            btn = ctk.CTkButton(popup, text=name, anchor="w",
                                 fg_color="transparent", hover_color=c["input_bg"],
                                 text_color=c["text"],
                                 font=ctk.CTkFont(family=f, size=13),
                                 corner_radius=6, height=32, width=190,
                                 command=lambda k=key, n=name: select(k, n))
-            btn.pack(fill="x", pady=1)
-
-        _last_pos = (0, 0)
-
-        def _poll_reposition():
-            nonlocal _last_pos
-            if self._popup and self._popup.winfo_exists():
-                x = self._mode_entry.winfo_rootx()
-                y = self._mode_entry.winfo_rooty() + self._mode_entry.winfo_height() + 4
-                if (x, y) != _last_pos:
-                    _last_pos = (x, y)
-                    self._popup.geometry(f"+{x}+{y}")
-            self._reposition_timer = self.after(200, _poll_reposition)
+            btn.pack(fill="x", pady=1, padx=4)
 
         popup.update_idletasks()
-        _poll_reposition()
+        popup.place(in_=self._mode_entry, x=0, rely=1.0, y=2, anchor="nw")
+        popup.lift()
+        self._popup_bind_id = self._app_bind(
+            lambda e: dismiss() if not self._is_inside_popup(e.widget) else None
+        )
 
-        def outside_popup(w):
-            while w:
-                if w == popup:
-                    return False
-                try:
-                    w = w.master
-                except Exception:
-                    break
-            return True
-
-        root = self.winfo_toplevel()
-        bind_id = root.bind("<Button-1>", lambda e: dismiss() if outside_popup(e.widget) else None, add="+")
-        self._popup_dismiss_id = bind_id
-        popup.bind("<Escape>", lambda e: dismiss())
+    def _is_inside_popup(self, w):
+        while w:
+            if w == self._popup:
+                return True
+            w = w.master
+        return False
 
     def _on_mode_change(self, key):
         for w in self._extra_widgets:
@@ -1795,46 +1906,56 @@ class MainPage(AppPage):
             )
         config_content = config_content.replace("127.0.0.1:10020", "host.docker.internal:10020")
         config_content = config_content.replace("127.0.0.1:20020", "host.docker.internal:20020")
-        fd, tmp_config = tempfile.mkstemp(suffix='.yaml', prefix='am_config_')
-        with os.fdopen(fd, 'w', encoding='utf-8') as f:
-            f.write(config_content)
-        try:
-            args = ["run", "--rm",
-                    "-v", f"{DOWNLOAD_DIR}:/downloads",
-                    "-v", f"{tmp_config}:/app/config.yaml",
-                    DL_IMAGE]
-            args.extend(arguments.split())
-            proc = subprocess.Popen(["docker"] + args,
-                                    stdout=subprocess.PIPE,
-                                    stderr=subprocess.STDOUT,
-                                    text=True, encoding="utf-8", errors="replace",
-                                    startupinfo=_SI, creationflags=_CF)
-            self._dl_proc = proc
-            buf = ""
+
+        dl_args = arguments.split()
+
+        for attempt in range(1, 4):
+            if attempt > 1:
+                self.log(f"[RETRY] Attempt {attempt}/3...")
+                time.sleep(2)
+
+            fd, tmp_config = tempfile.mkstemp(suffix='.yaml', prefix='am_config_')
+            with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                f.write(config_content)
+
             try:
-                for ch in iter(lambda: proc.stdout.read(1), ""):
-                    if ch in ("\r", "\n"):
-                        if buf.strip():
-                            if "%" in buf:
-                                self.log_replace(buf.strip())
-                            else:
-                                self.log(buf.strip())
-                        buf = ""
-                    else:
-                        buf += ch
-                if buf.strip():
-                    self.log(buf.strip())
-                proc.wait()
-                if proc.returncode != 0:
+                proc = subprocess.Popen(
+                    ["docker", "run", "--rm",
+                     "-v", f"{DOWNLOAD_DIR}:/downloads",
+                     "-v", f"{tmp_config}:/app/config.yaml",
+                     DL_IMAGE] + dl_args,
+                                        stdout=subprocess.PIPE,
+                                        stderr=subprocess.STDOUT,
+                                        text=True, encoding="utf-8", errors="replace",
+                                        startupinfo=_SI, creationflags=_CF)
+                self._dl_proc = proc
+                buf = ""
+                try:
+                    for ch in iter(lambda: proc.stdout.read(1), ""):
+                        if ch in ("\r", "\n"):
+                            if buf.strip():
+                                if "%" in buf:
+                                    self.log_replace(buf.strip())
+                                else:
+                                    self.log(buf.strip())
+                            buf = ""
+                        else:
+                            buf += ch
+                    if buf.strip():
+                        self.log(buf.strip())
+                    proc.wait()
+                    if proc.returncode == 0:
+                        break
                     self.log(f"Exit code: {proc.returncode}")
-            except Exception:
-                pass
-        finally:
-            try:
-                os.remove(tmp_config)
-            except Exception:
-                pass
-        self.log(f"Done - output: {DOWNLOAD_DIR}")
+                except Exception:
+                    pass
+            finally:
+                try:
+                    os.remove(tmp_config)
+                except Exception:
+                    pass
+
+        self.log(f"Done - output: {get_download_folder()}")
         self.after(0, self._on_download_done)
 
 
@@ -2003,6 +2124,19 @@ class StatusPage(AppPage):
 
                 self._items[key] = (dot, value)
 
+            if section_key == "s_wrapper":
+                restart_row = ctk.CTkFrame(card, fg_color="transparent", height=32)
+                restart_row.pack(fill="x", padx=10, pady=3)
+                restart_row.pack_propagate(False)
+                self._restart_btn = ctk.CTkButton(restart_row, text=self.t("wrapper_restart"),
+                                                  fg_color=c["warning"], hover_color="#E68600",
+                                                  text_color="white",
+                                                  font=ctk.CTkFont(family=f, size=12),
+                                                  corner_radius=6, height=26,
+                                                  command=self._restart_wrapper)
+                self._restart_btn.pack(side="left")
+                self._reg(self._restart_btn, "wrapper_restart")
+
             # Add export button inside the images card
             if section_key == "s_images":
                 export_row = ctk.CTkFrame(card, fg_color="transparent", height=32)
@@ -2106,6 +2240,18 @@ class StatusPage(AppPage):
                     lbl.configure(text=path_map[key])
         self.after(0, update)
 
+    def _restart_wrapper(self):
+        self._restart_btn.configure(state="disabled", text=self.t("wrapper_restarting"))
+        stop_wrapper()
+        threading.Thread(target=self._do_restart_wrapper, daemon=True).start()
+
+    def _do_restart_wrapper(self):
+        ok, msg = do_start_wrapper()
+        self.after(0, lambda: self._restart_btn.configure(
+            state="normal", text=self.t("wrapper_restart")
+        ))
+        self.after(0, self._refresh)
+
     def _export_images(self):
         from tkinter import filedialog
         image_dir = filedialog.askdirectory(title=self.t("select_image_dir_title"))
@@ -2130,6 +2276,567 @@ class StatusPage(AppPage):
             header.configure(text=self.t(key))
         for (_lbl, i18n_key) in self._item_labels.values():
             _lbl.configure(text=self.t(i18n_key))
+
+
+class ConvertPage(AppPage):
+    def __init__(self, parent, app):
+        super().__init__(parent, app)
+        self._source_dir = get_download_folder()
+        self._converting = False
+        self._format_var = None
+        self._popup = None
+        self._reposition_timer = None
+        self.build_ui()
+
+    def build_ui(self):
+        c = self.app.colors
+        f = FONT_FAMILY
+
+        topbar = ctk.CTkFrame(self, fg_color=c["card"], height=44, corner_radius=0,
+                              border_color=c["divider"], border_width=1)
+        topbar.pack(fill="x")
+        topbar.pack_propagate(False)
+
+        self._convert_title = ctk.CTkLabel(topbar, text=self.t("convert_title"),
+                                           font=ctk.CTkFont(family=f, size=16, weight="bold"),
+                                           text_color=c["text"])
+        self._convert_title.pack(side="left", padx=16, pady=11)
+        self._reg(self._convert_title, "convert_title")
+
+        btn_frame = ctk.CTkFrame(topbar, fg_color="transparent")
+        btn_frame.pack(side="right", padx=6)
+
+        self._select_dir_btn = ctk.CTkButton(btn_frame, text=self.t("convert_select_dir"),
+                                              width=80, height=30, corner_radius=6,
+                                              fg_color=c["input_bg"], hover_color=c["divider"],
+                                              text_color=c["text"],
+                                              font=ctk.CTkFont(family=f, size=12),
+                                              command=self._select_dir)
+        self._select_dir_btn.pack(side="left", padx=(0, 6))
+        self._reg(self._select_dir_btn, "convert_select_dir")
+
+        self._format_var = ctk.StringVar(value="FLAC")
+        self._format_entry = ctk.CTkEntry(btn_frame, height=30, corner_radius=6,
+                                          fg_color=c["input_bg"], text_color=c["text"],
+                                          border_color=c["border"],
+                                          font=ctk.CTkFont(family=f, size=12),
+                                          width=70, justify="center")
+        self._format_entry.pack(side="left", padx=(0, 6))
+        self._format_entry.insert(0, "FLAC")
+        self._format_entry.configure(state="readonly")
+        self._format_entry.bind("<Button-1>", lambda e: self._show_format_popup())
+
+        self._convert_btn = ctk.CTkButton(btn_frame, text=self.t("convert_btn"),
+                                           width=90, height=30, corner_radius=6,
+                                           fg_color=c["primary"], hover_color=c["primary_hover"],
+                                           text_color="white",
+                                           font=ctk.CTkFont(family=f, size=12, weight="bold"),
+                                           command=self._start_convert)
+        self._convert_btn.pack(side="left")
+        self._reg(self._convert_btn, "convert_btn")
+
+        body = ctk.CTkFrame(self, fg_color=c["background"], corner_radius=0)
+        body.pack(fill="both", expand=True, padx=12, pady=8)
+
+        self._status_label = ctk.CTkLabel(body, text=self.t("convert_source_dir", path=self._source_dir),
+                                          font=ctk.CTkFont(family=f, size=12),
+                                          text_color=c["text_secondary"])
+        self._status_label.pack(anchor="w", pady=(0, 4))
+
+        self._progress = ctk.CTkProgressBar(body, width=400, height=4,
+                                            progress_color=c["primary"],
+                                            fg_color=c["divider"])
+        self._progress.pack(fill="x", pady=(0, 8))
+        self._progress.set(0)
+
+        self._log = ctk.CTkTextbox(body,
+                                    fg_color=c["card"], text_color=c["text"],
+                                    border_color=c["border"], border_width=1,
+                                    corner_radius=10,
+                                    font=ctk.CTkFont(family=MONO_FAMILY, size=12),
+                                    state="disabled",
+                                    wrap="none")
+        self._log.pack(fill="both", expand=True)
+
+    def log(self, msg):
+        if self._log:
+            self._log.configure(state="normal")
+            self._log.insert("end", msg + "\n")
+            self._log.see("end")
+            self._log.configure(state="disabled")
+
+    def on_show(self):
+        self._update_dir_label()
+
+    def _update_dir_label(self):
+        self._status_label.configure(text=self.t("convert_source_dir", path=self._source_dir))
+
+    def _select_dir(self):
+        from tkinter import filedialog
+        d = filedialog.askdirectory(title=self.t("convert_select_dir"), initialdir=self._source_dir)
+        if d:
+            self._source_dir = d
+            self._update_dir_label()
+
+    def _show_format_popup(self):
+        if self._popup and self._popup.winfo_exists():
+            self._popup.destroy()
+        self._popup = None
+        self._app_unbind(getattr(self, '_popup_bind_id', None))
+        self._popup_bind_id = None
+        if self._reposition_timer is not None:
+            self.after_cancel(self._reposition_timer)
+            self._reposition_timer = None
+
+        c = self.app.colors
+        f = FONT_FAMILY
+        popup = ctk.CTkFrame(self, fg_color=c["surface"],
+                             border_color=c["border"], border_width=1,
+                             corner_radius=6)
+        self._popup = popup
+        self._popup_bind_id = None
+
+        def select(fmt):
+            self._format_var.set(fmt)
+            self._format_entry.configure(state="normal")
+            self._format_entry.delete(0, "end")
+            self._format_entry.insert(0, fmt)
+            self._format_entry.configure(state="readonly")
+            dismiss()
+
+        def dismiss():
+            if self._reposition_timer is not None:
+                self.after_cancel(self._reposition_timer)
+                self._reposition_timer = None
+            self._app_unbind(self._popup_bind_id)
+            self._popup_bind_id = None
+            if self._popup:
+                try:
+                    self._popup.destroy()
+                except Exception:
+                    pass
+                self._popup = None
+
+        for fmt in ["FLAC", "WAV"]:
+            btn = ctk.CTkButton(popup, text=fmt, anchor="w",
+                                fg_color="transparent", hover_color=c["input_bg"],
+                                text_color=c["text"],
+                                font=ctk.CTkFont(family=f, size=12),
+                                corner_radius=4, height=28, width=70,
+                                command=lambda f=fmt: select(f))
+            btn.pack(fill="x", pady=1, padx=2)
+
+        popup.update_idletasks()
+        popup.place(in_=self._format_entry, x=0, rely=1.0, y=2, anchor="nw")
+        popup.lift()
+        self._popup_bind_id = self._app_bind(
+            lambda e: dismiss() if not self._is_inside_popup(e.widget) else None
+        )
+
+    def _is_inside_popup(self, w):
+        while w:
+            if w == self._popup:
+                return True
+            w = w.master
+        return False
+
+    def _start_convert(self):
+        if self._converting:
+            return
+        self._log.configure(state="normal")
+        self._log.delete("1.0", "end")
+        self._log.configure(state="disabled")
+
+        ffmpeg = shutil.which("ffmpeg")
+        if not ffmpeg:
+            self.log("[WARN] ffmpeg/ffprobe not found, attempting winget install...")
+            self._converting = True
+            self._convert_btn.configure(state="disabled", text=self.t("convert_running"))
+            threading.Thread(target=self._try_install_ffmpeg, daemon=True).start()
+            return
+
+        self._converting = True
+        self._convert_btn.configure(state="disabled", text=self.t("convert_running"))
+        threading.Thread(target=self._do_convert, daemon=True).start()
+
+    def _try_install_ffmpeg(self):
+        try:
+            result = subprocess.run(
+                ["winget", "install", "--id", "Gyan.FFmpeg", "--accept-source-agreements", "--accept-package-agreements", "--silent"],
+                capture_output=True, text=True,
+                startupinfo=_SI, creationflags=_CF,
+                timeout=120
+            )
+            if result.returncode == 0:
+                self.after(0, lambda: self.log("[OK] ffmpeg installed, please restart convert"))
+            else:
+                self.after(0, lambda: self.log("[ERROR] winget install failed"))
+                self.after(0, lambda: self.log("[INFO] Install ffmpeg manually: https://ffmpeg.org/download.html"))
+        except FileNotFoundError:
+            self.after(0, lambda: self.log("[ERROR] winget not found"))
+            self.after(0, lambda: self.log("[INFO] Install ffmpeg manually: https://ffmpeg.org/download.html"))
+        except Exception as e:
+            self.after(0, lambda: self.log(f"[ERROR] {e}"))
+        self.after(0, self._reset_btn)
+
+    def _do_convert(self):
+        self.after(0, lambda: self.log(self.t("convert_scanning")))
+
+        # Recursive scan for m4a files only
+        files = []
+        try:
+            for root, dirs, filenames in os.walk(self._source_dir):
+                for f in sorted(filenames):
+                    if os.path.splitext(f)[1].lower() == '.m4a':
+                        files.append(os.path.join(root, f))
+        except Exception as e:
+            self.after(0, lambda: self.log(f"[ERROR] {e}"))
+            self.after(0, self._reset_btn)
+            return
+
+        if not files:
+            self.after(0, lambda: self.log(self.t("convert_nothing")))
+            self.after(0, self._reset_btn)
+            return
+
+        self.after(0, lambda: self.log(self.t("convert_found", count=len(files))))
+        total = len(files)
+        ok_count = 0
+        fmt = self._format_var.get().lower()
+        ffmpeg = shutil.which("ffmpeg") or "ffmpeg"
+
+        for i, src in enumerate(files):
+            base = os.path.splitext(src)[0]
+            base = base.replace(". ", ".", 1)
+            out = base + "." + fmt
+            name = os.path.basename(src)
+            name_noext = os.path.splitext(name)[0]
+
+            # Skip if output file already exists
+            if os.path.isfile(out):
+                self.after(0, lambda n=name_noext: self.log(self.t("convert_skip_exists", file=n)))
+                continue
+
+            self.after(0, lambda n=name_noext: self.log(self.t("convert_converting", file=n)))
+            self.after(0, lambda v=(i+1)/total: self._progress.set(v))
+
+            try:
+                if fmt == "wav":
+                    result = subprocess.run(
+                        [ffmpeg, "-y", "-i", src, "-loglevel", "error", out],
+                        capture_output=True, text=True,
+                        startupinfo=_SI, creationflags=_CF
+                    )
+                else:
+                    result = subprocess.run(
+                        [ffmpeg, "-y", "-i", src, "-c:a", "flac", "-compression_level", "6", "-loglevel", "error", out],
+                        capture_output=True, text=True,
+                        startupinfo=_SI, creationflags=_CF
+                    )
+                if result.returncode == 0:
+                    ok_count += 1
+                else:
+                    self.after(0, lambda n=name_noext: self.log(self.t("convert_failed", file=n)))
+                    if result.stderr.strip():
+                        self.after(0, lambda e=result.stderr.strip()[:200]: self.log(f"  [ERROR] {e}"))
+            except FileNotFoundError as fe:
+                self.after(0, lambda: self.log(f"[ERROR] {fe.filename} not found"))
+                self.after(0, lambda: self.log("[INFO] Install ffmpeg or place flac.exe in assets/"))
+                break
+            except Exception as e:
+                self.after(0, lambda n=name_noext, err=str(e): self.log(f"[ERROR] {n}: {err}"))
+
+        self.after(0, lambda: self._progress.set(1.0))
+        self.after(0, lambda: self.log(self.t("convert_complete", total=ok_count)))
+        self.after(0, self._reset_btn)
+
+    def _reset_btn(self):
+        self._converting = False
+        self._convert_btn.configure(state="normal", text=self.t("convert_btn"))
+
+    def refresh_language(self):
+        super().refresh_language()
+        self._update_dir_label()
+
+
+class RenamePage(AppPage):
+    def __init__(self, parent, app):
+        super().__init__(parent, app)
+        self._source_dir = get_download_folder()
+        self._renaming = False
+        self._popup = None
+        self._reposition_timer = None
+        self.build_ui()
+
+    def build_ui(self):
+        c = self.app.colors
+        f = FONT_FAMILY
+
+        topbar = ctk.CTkFrame(self, fg_color=c["card"], height=44, corner_radius=0,
+                              border_color=c["divider"], border_width=1)
+        topbar.pack(fill="x")
+        topbar.pack_propagate(False)
+
+        self._title = ctk.CTkLabel(topbar, text=self.t("rename_title"),
+                                   font=ctk.CTkFont(family=f, size=16, weight="bold"),
+                                   text_color=c["text"])
+        self._title.pack(side="left", padx=16, pady=11)
+        self._reg(self._title, "rename_title")
+
+        btn_frame = ctk.CTkFrame(topbar, fg_color="transparent")
+        btn_frame.pack(side="right", padx=6)
+
+        self._select_dir_btn = ctk.CTkButton(btn_frame, text=self.t("rename_select_dir"),
+                                              width=80, height=30, corner_radius=6,
+                                              fg_color=c["input_bg"], hover_color=c["divider"],
+                                              text_color=c["text"],
+                                              font=ctk.CTkFont(family=f, size=12),
+                                              command=self._select_dir)
+        self._select_dir_btn.pack(side="left", padx=(0, 6))
+        self._reg(self._select_dir_btn, "rename_select_dir")
+
+        lbl = ctk.CTkLabel(btn_frame, text=self.t("rename_format_label"),
+                           font=ctk.CTkFont(family=f, size=12),
+                           text_color=c["text_secondary"])
+        lbl.pack(side="left", padx=(0, 4))
+        self._reg(lbl, "rename_format_label")
+
+        self._format_var = ctk.StringVar(value=self.t("rename_tpl_track"))
+        self._format_entry = ctk.CTkEntry(btn_frame, height=30, corner_radius=6,
+                                          fg_color=c["input_bg"], text_color=c["text"],
+                                          border_color=c["border"],
+                                          font=ctk.CTkFont(family=f, size=12),
+                                          width=90, justify="center")
+        self._format_entry.pack(side="left", padx=(0, 6))
+        self._format_entry.insert(0, self.t("rename_tpl_track"))
+        self._format_entry.configure(state="readonly")
+        self._format_entry.bind("<Button-1>", lambda e: self._show_format_popup())
+
+        self._rename_btn = ctk.CTkButton(btn_frame, text=self.t("rename_btn"),
+                                          width=90, height=30, corner_radius=6,
+                                          fg_color=c["primary"], hover_color=c["primary_hover"],
+                                          text_color="white",
+                                          font=ctk.CTkFont(family=f, size=12, weight="bold"),
+                                          command=self._start_rename)
+        self._rename_btn.pack(side="left")
+        self._reg(self._rename_btn, "rename_btn")
+
+        body = ctk.CTkFrame(self, fg_color=c["background"], corner_radius=0)
+        body.pack(fill="both", expand=True, padx=12, pady=8)
+
+        self._status_label = ctk.CTkLabel(body, text=self.t("rename_source_dir", path=self._source_dir),
+                                          font=ctk.CTkFont(family=f, size=12),
+                                          text_color=c["text_secondary"])
+        self._status_label.pack(anchor="w", pady=(0, 4))
+
+        self._progress = ctk.CTkProgressBar(body, width=400, height=4,
+                                            progress_color=c["primary"],
+                                            fg_color=c["divider"])
+        self._progress.pack(fill="x", pady=(0, 8))
+        self._progress.set(0)
+
+        self._log = ctk.CTkTextbox(body,
+                                    fg_color=c["card"], text_color=c["text"],
+                                    border_color=c["border"], border_width=1,
+                                    corner_radius=10,
+                                    font=ctk.CTkFont(family=MONO_FAMILY, size=12),
+                                    state="disabled",
+                                    wrap="none")
+        self._log.pack(fill="both", expand=True)
+
+    def log(self, msg):
+        if self._log:
+            self._log.configure(state="normal")
+            self._log.insert("end", msg + "\n")
+            self._log.see("end")
+            self._log.configure(state="disabled")
+
+    def on_show(self):
+        self._update_dir_label()
+
+    def _update_dir_label(self):
+        self._status_label.configure(text=self.t("rename_source_dir", path=self._source_dir))
+
+    def _select_dir(self):
+        from tkinter import filedialog
+        d = filedialog.askdirectory(title=self.t("rename_select_dir"), initialdir=self._source_dir)
+        if d:
+            self._source_dir = d
+            self._update_dir_label()
+
+    def _show_format_popup(self):
+        if self._popup and self._popup.winfo_exists():
+            self._popup.destroy()
+        self._popup = None
+        self._app_unbind(getattr(self, '_popup_bind_id', None))
+        self._popup_bind_id = None
+        if self._reposition_timer is not None:
+            self.after_cancel(self._reposition_timer)
+            self._reposition_timer = None
+
+        c = self.app.colors
+        f = FONT_FAMILY
+        popup = ctk.CTkFrame(self, fg_color=c["surface"],
+                             border_color=c["border"], border_width=1,
+                             corner_radius=6)
+        self._popup = popup
+        self._popup_bind_id = None
+
+        tpl_track = self.t("rename_tpl_track")
+        tpl_artist = self.t("rename_tpl_artist")
+
+        def select(fmt):
+            self._format_var.set(fmt)
+            self._format_entry.configure(state="normal")
+            self._format_entry.delete(0, "end")
+            self._format_entry.insert(0, fmt)
+            self._format_entry.configure(state="readonly")
+            dismiss()
+
+        def dismiss():
+            if self._reposition_timer is not None:
+                self.after_cancel(self._reposition_timer)
+                self._reposition_timer = None
+            self._app_unbind(self._popup_bind_id)
+            self._popup_bind_id = None
+            if self._popup:
+                try:
+                    self._popup.destroy()
+                except Exception:
+                    pass
+                self._popup = None
+
+        for fmt in [tpl_track, tpl_artist]:
+            btn = ctk.CTkButton(popup, text=fmt, anchor="w",
+                                fg_color="transparent", hover_color=c["input_bg"],
+                                text_color=c["text"],
+                                font=ctk.CTkFont(family=f, size=12),
+                                corner_radius=4, height=28, width=160,
+                                command=lambda f=fmt: select(f))
+            btn.pack(fill="x", pady=1, padx=2)
+
+        popup.update_idletasks()
+        popup.place(in_=self._format_entry, x=0, rely=1.0, y=2, anchor="nw")
+        popup.lift()
+        self._popup_bind_id = self._app_bind(
+            lambda e: dismiss() if not self._is_inside_popup(e.widget) else None
+        )
+
+    def _is_inside_popup(self, w):
+        while w:
+            if w == self._popup:
+                return True
+            w = w.master
+        return False
+
+    def _start_rename(self):
+        if self._renaming:
+            return
+        self._log.configure(state="normal")
+        self._log.delete("1.0", "end")
+        self._log.configure(state="disabled")
+        self._renaming = True
+        self._rename_btn.configure(state="disabled", text=self.t("convert_running"))
+        threading.Thread(target=self._do_rename, daemon=True).start()
+
+    def _do_rename(self):
+        ffprobe = shutil.which("ffprobe") or "ffprobe"
+        selected_fmt = self._format_var.get()
+        is_track = selected_fmt == self.t("rename_tpl_track")
+        self.after(0, lambda: self.log(self.t("rename_scanning")))
+
+        files = []
+        try:
+            for root, dirs, filenames in os.walk(self._source_dir):
+                for f in sorted(filenames):
+                    ext = os.path.splitext(f)[1].lower()
+                    if ext in ('.flac', '.wav'):
+                        files.append(os.path.join(root, f))
+        except Exception as e:
+            self.after(0, lambda: self.log(f"[ERROR] {e}"))
+            self.after(0, self._reset_btn)
+            return
+
+        if not files:
+            self.after(0, lambda: self.log(self.t("rename_nothing")))
+            self.after(0, self._reset_btn)
+            return
+
+        self.after(0, lambda: self.log(self.t("rename_found", count=len(files))))
+        total = len(files)
+        ok_count = 0
+
+        for i, src in enumerate(files):
+            name = os.path.basename(src)
+            ext = os.path.splitext(src)[1]
+            self.after(0, lambda v=(i+1)/total: self._progress.set(v))
+
+            # Extract tags
+            tags = {}
+            try:
+                p = subprocess.run(
+                    [ffprobe, "-v", "error",
+                     "-show_entries", "format_tags=ARTIST,TITLE",
+                     "-of", "default=noprint_wrappers=1", src],
+                    capture_output=True, text=True,
+                    startupinfo=_SI, creationflags=_CF
+                )
+                if p.returncode == 0 and p.stdout.strip():
+                    for line in p.stdout.strip().split('\n'):
+                        upper = line.upper()
+                        if upper.startswith("TAG:ARTIST="):
+                            tags["ARTIST"] = line.split("=", 1)[1].strip()
+                        elif upper.startswith("TAG:TITLE="):
+                            tags["TITLE"] = line.split("=", 1)[1].strip()
+            except Exception:
+                pass
+
+            artist = tags.get("ARTIST", "")
+            title = tags.get("TITLE", "")
+
+            if is_track:
+                if not title:
+                    self.after(0, lambda n=name: self.log(self.t("rename_no_tag", file=n)))
+                    continue
+                track_num = os.path.splitext(name)[0].split('.')[0]
+                new_base = track_num + ". " + title
+            else:
+                if not artist or not title:
+                    self.after(0, lambda n=name: self.log(self.t("rename_no_tag", file=n)))
+                    continue
+                new_base = artist + " - " + title
+
+            new_name = new_base + ext
+            new_path = os.path.join(os.path.dirname(src), new_name)
+
+            if os.path.normpath(src) == os.path.normpath(new_path):
+                continue
+
+            self.after(0, lambda o=name, n=new_name: self.log(self.t("rename_renaming", old=o, new=n)))
+
+            try:
+                os.rename(src, new_path)
+                ok_count += 1
+            except Exception as e:
+                self.after(0, lambda n=name, err=str(e): self.log(self.t("rename_failed", file=n) + f": {err}"))
+
+        self.after(0, lambda: self._progress.set(1.0))
+        self.after(0, lambda: self.log(self.t("rename_complete", total=ok_count)))
+        self.after(0, self._reset_btn)
+
+    def _reset_btn(self):
+        self._renaming = False
+        self._rename_btn.configure(state="normal", text=self.t("rename_btn"))
+
+    def refresh_language(self):
+        super().refresh_language()
+        self._update_dir_label()
+        new_val = self.t("rename_tpl_track")
+        self._format_var.set(new_val)
+        self._format_entry.configure(state="normal")
+        self._format_entry.delete(0, "end")
+        self._format_entry.insert(0, new_val)
+        self._format_entry.configure(state="readonly")
 
 
 def main():

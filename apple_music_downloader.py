@@ -412,9 +412,40 @@ def build_downloader_image():
     return True
 
 
+def _ensure_docker_running():
+    """Try to start Docker Desktop if daemon is not running."""
+    if subprocess.call(["docker", "info"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) == 0:
+        return True
+
+    print(f"{C}[INFO] Docker daemon not running, attempting to start Docker Desktop...{R}")
+    docker_exe = os.path.join(os.environ.get("ProgramFiles", "C:\\Program Files"),
+                              "Docker", "Docker", "Docker Desktop.exe")
+    if not os.path.isfile(docker_exe):
+        docker_exe = os.path.join(os.environ.get("LocalAppData", ""),
+                                  "Docker", "Docker Desktop.exe")
+    if os.path.isfile(docker_exe):
+        subprocess.Popen([docker_exe], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    else:
+        print(f"{Y}[WARN] Docker Desktop executable not found at known paths.{R}")
+
+    print(f"{C}[INFO] Waiting for Docker daemon (up to 120s)...{R}")
+    for i in range(60):
+        time.sleep(2)
+        if subprocess.call(["docker", "info"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) == 0:
+            print(f"{G}[OK] Docker is ready{R}")
+            return True
+        if i > 0 and i % 10 == 0:
+            print(f"{D}  Still waiting... ({i*2}s){R}")
+    return False
+
+
 def check_prerequisites(image_dir=None):
     if subprocess.call(["docker", "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) != 0:
-        print(f"{E}[ERROR] Docker is not installed or not in PATH.{R}")
+        print(f"{E}[ERROR] Docker is not installed or not in PATH. Please install Docker Desktop.{R}")
+        sys.exit(1)
+
+    if not _ensure_docker_running():
+        print(f"{E}[ERROR] Docker daemon could not start. Please install or reinstall Docker Desktop.{R}")
         sys.exit(1)
 
     os.makedirs(APP_DATA_DIR, exist_ok=True)
@@ -475,9 +506,15 @@ def invoke_downloader(arguments, description):
                 "-v", f"{tmp_config}:/app/config.yaml",
                 DL_IMAGE]
         args.extend(arguments.split())
-        code = _live("docker", *args)
-        if code != 0:
+        for attempt in range(1, 4):
+            if attempt > 1:
+                print(f"\n{Y}[RETRY] Attempt {attempt}/3...{R}")
+            code = _live("docker", *args)
+            if code == 0:
+                break
             print(f"\n{Y}[WARN] Docker exited with code {code}{R}")
+            if attempt < 3:
+                time.sleep(2)
     finally:
         os.remove(tmp_config)
         print(f"\n{G}Output: {SCRIPT_DIR}{R}")
