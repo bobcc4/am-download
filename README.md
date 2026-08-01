@@ -120,7 +120,7 @@ docker compose up -d
 | `./wrapper-data` | Apple 登录与 FairPlay 数据 |
 | `./downloads` | 下载结果 |
 
-这些目录会由容器启动流程自动初始化，不需要额外的权限辅助容器。停止服务可运行 `docker compose down`，不要删除上述目录。
+这些目录会由 `app` 容器入口程序自动初始化。该 Compose 只创建 `app` 和 `wrapper` 两个容器。停止服务可运行 `docker compose down`，不要删除上述目录。
 
 ## 首次登录
 
@@ -236,7 +236,7 @@ docker logs --tail=200 am-download
 
 ### 权限错误
 
-确认飞牛项目目录可被 Docker 访问。当前入口程序会初始化 `app-data` 和 `downloads` 权限，不需要常驻的 permissions 容器。
+确认飞牛项目目录可被 Docker 访问。当前入口程序会在 `app` 容器内部初始化 `app-data` 和 `downloads` 权限；正常部署的容器列表应仅包含 `app` 和 `wrapper`。
 
 ## 上游与许可
 
