@@ -1,286 +1,104 @@
-# Apple Music ALAC Downloader
+# AM download
 
-English | [中文](README.md)
+[中文](README.md) | English
 
-> Apple Music lossless ALAC / Dolby Atmos / AAC downloader
+AM download is a browser-based Apple Music download manager with Docker Compose and fnOS deployment support.
 
-## Acknowledgments
-
-This project builds upon the following excellent open-source projects:
-
-- **[apple-music-downloader](https://github.com/zhaarey/apple-music-downloader)** — Core download engine implemented in Go, supporting ALAC / Atmos / AAC
-- **[wrapper](https://github.com/WorldObservationLog/wrapper)** — Apple Music Android DRM decryption service, providing FairPlay decryption and M3U8 retrieval
-
-Thanks to the authors and contributors of the above projects.
+> Use this project only for content you are authorized to access. You are responsible for complying with Apple terms, local law, and upstream licenses.
 
 ## Features
 
-- ALAC lossless downloads (up to 192kHz)
-- Dolby Atmos spatial audio downloads
-- AAC-LC / AAC / AAC-Binaural / AAC-Downmix downloads
-- Full album, single song, and playlist downloads
-- Lyrics download (LRC / TTML)
-- Cover art embedding and animated artwork download
-- Post-download format conversion (FLAC / MP3 / Opus / WAV)
-- Custom file and folder naming
-- **Graphical interface** with sidebar tab navigation (5 functional tabs)
-- **Bilingual UI** — switch between Chinese and English with one click
-- **One-click login** — Apple ID credentials cached automatically
-- **Environment self-check** — automatic detection of Docker, images, and service status
-- **Built-in config editor** — edit and save configuration directly in the GUI
-- **FLAC/WAV format conversion** — recursive .m4a scanning with auto ffmpeg install
-- **Audio file renaming** — batch rename by track number or artist tags
-- **Real-time download progress** with persistent logging
-- **Docker image import/export** — use local .tar images for fast deployment without rebuilding
-- **Standalone EXE** — single-file packaging via PyInstaller
+- Web UI for creating, monitoring, cancelling, and clearing download jobs
+- Albums, songs, playlists, artists, Dolby Atmos, AAC, and music videos
+- Apple ID login and 2FA in the browser
+- Persistent configuration, login state, and downloads
+- Independent word-timed or line-timed lyrics for embedded metadata and sidecar files
+- Docker Compose configuration tailored for fnOS
 
-## Requirements
+## Images
 
-- **Python 3.7+**
-- **Docker** (must be installed and running)
+| Service | Image |
+| --- | --- |
+| App | `bobcc4/am-download:v1.0.4` |
+| Wrapper | `bobcc4/am-download-wrapper:v1.0.4` |
 
-### Additional CLI dependencies
+The published runtime images currently support `linux/amd64` only.
+
+## Docker Compose
 
 ```bash
-pip install -r requirements.txt
+git clone https://github.com/bobcc4/am-download.git
+cd am-download
+cp .env.example .env
+docker compose -f compose.dockerhub.yaml up -d
 ```
 
-## Quick Start
+Configure `.env` before starting:
 
-### 1. First Launch
-
-On first launch, the default configuration is automatically copied to `%LOCALAPPDATA%\AppleMusicDownloader\config.yaml`. No manual config creation is needed.
-
-Edit the key settings in that file as needed:
-
-- `media-user-token`: Your Apple Music media user token
-- `storefront`: Your account region code (e.g., `us`, `jp`, `cn`)
-
-### 2. Run
-
-**CLI version**:
-```bash
-python apple_music_downloader.py
+```env
+DOCKERHUB_NAMESPACE=bobcc4
+AM_DOWNLOAD_BIND=127.0.0.1
+AM_DOWNLOAD_PORT=8080
+AM_DOWNLOAD_PASSWORD=change-this-password
+MANAGER_TOKEN=replace-with-a-long-random-value
+TZ=Asia/Shanghai
 ```
 
-Import local images (skip source build):
-```bash
-python apple_music_downloader.py --image-dir ./docker-images
-```
-`--image-dir` specifies a directory containing `.tar` image files. They are loaded via `docker load` on startup.
+Open `http://127.0.0.1:8080`. Set a strong `AM_DOWNLOAD_PASSWORD` before exposing the service to a LAN.
 
-**GUI version**:
-```bash
-python apple_music_downloader_gui.py
-```
+## fnOS
 
-On first run, the application will automatically:
-- Build the Wrapper and Downloader Docker images
-- Guide you through Apple Music login
-- Cache login credentials for subsequent launches
+Use [compose.fnos.yaml](compose.fnos.yaml). Define `MANAGER_TOKEN` and `AM_DOWNLOAD_PASSWORD` in the fnOS Compose environment.
 
-### 3. Output Location
+The default mapping is host port `18333` to container port `8080`. To use another host port, change only `published`; keep `target: 8080`.
 
-| Mode | Save Location |
-|------|---------------|
-| ALAC | `Downloads\AM-DL downloads\` |
-| Dolby Atmos | `Downloads\AM-DL-Atmos downloads\` |
-| AAC | `Downloads\AM-DL-AAC downloads\` |
-| MV | `Downloads\AM-DL-MV downloads\` |
+Persistent directories:
 
-> Save paths can be customized via `alac-save-folder` and other fields in the config file. The GUI status bar also shows the output path — click the folder icon to open it.
+| Directory | Content |
+| --- | --- |
+| `./app-data` | Configuration and task history |
+| `./wrapper-data` | Apple login and FairPlay state |
+| `./downloads` | Downloaded files |
 
-### 4. Build EXE
+## Lyrics
+
+The settings page provides separate modes for embedded lyrics and sidecar lyrics:
+
+- `word`: word-timed lyrics
+- `line`: line-timed lyrics
+
+The two outputs can use different modes. Existing installations are migrated automatically with embedded lyrics defaulting to `word` and sidecar lyrics defaulting to `line`.
+
+## Upgrade
 
 ```bash
-build.bat
+docker compose -f compose.dockerhub.yaml pull
+docker compose -f compose.dockerhub.yaml up -d
 ```
 
-Generates `AppleMusicDownloader.exe`.
+Do not remove the persistent volumes or fnOS bind directories during an upgrade.
 
-## Docker Images
+## Build and test
 
-| Component | Source | Notes |
-|-----------|--------|-------|
-| wrapper | `assets/Wrapper/` | Built locally, Dockerfile + wrapper binary bundled in EXE |
-| downloader | `assets/apple-music-downloader/` | Built locally, Go source + Dockerfile bundled in EXE |
+```bash
+docker compose -f compose.yaml build
 
-### Local Image Import
+cd assets/apple-music-downloader
+go test ./...
 
-If you already have exported `.tar` image files, you can skip the build and load directly:
+cd ../../server
+python -m unittest discover -s tests -v
 
-**CLI**: Pass `--image-dir` at startup to specify the image directory
-
-**GUI**: A dialog will ask "Use local images?" on startup — choose "Yes" and select the directory
-
-The system loads all `.tar` files in the directory and auto-matches tags using keywords (`wrapper`, `apple-music-downloader`). If tags don't match, `docker tag` is applied automatically.
-
-### Image Export
-
-**CLI**: Press `E` in the main menu, select an output directory. Generates `wrapper_local.tar` and `apple-music-downloader_local.tar`
-
-**GUI**: Status page → Images card → click "Export Images" button
-
-## GUI Usage
-
-The interface uses sidebar tab navigation with five tabs:
-
-### Download
-
-| Component | Function |
-|-----------|----------|
-| Mode Selector | Click to open dropdown: Album / Song / Playlist / Dolby Atmos / AAC |
-| URL Input | Paste Apple Music link; right-click to paste |
-| Download Button | Click to start download; turns red while downloading; click again to cancel |
-| Clear Button (×) | Clear the URL |
-| Output Log | Real-time download progress; progress lines update in place |
-| Clear Log Button | Clear the console |
-| Status Bar | Left: Wrapper status; Right: output path (clickable to open) |
-
-### Status
-
-| Item | Description |
-|------|-------------|
-| Docker | Installation status, daemon running status |
-| Images | Whether Wrapper and Downloader images are built; supports export as .tar |
-| Wrapper Container | Running status, port mapping |
-| Login | Credential cache status |
-| Paths | Config file, log directory, and wrapper data paths (clickable to open) |
-
-### Config
-
-Built-in YAML editor — edit configuration directly and save. The Reload button re-reads the currently active config.
-
-### Convert
-
-| Component | Function |
-|-----------|----------|
-| Directory | Select folder containing .m4a files |
-| Format | Select output format: FLAC / WAV |
-| Start | Recursively scan and convert all .m4a files; skips already converted files |
-
-> Uses ffmpeg with libFLAC encoder. If ffmpeg is not installed, it can be automatically installed via winget.
-
-### Rename
-
-| Component | Function |
-|-----------|----------|
-| Directory | Select folder containing FLAC / WAV files |
-| Format | Select naming template: "TrackNumber. SongName" or "Artist - SongName" |
-| Rename | Recursively scan all .flac / .wav files, read tags via ffprobe, and rename |
-
-### Language
-
-Language switch buttons are available at the bottom of the sidebar and in the top-right corner of the login page. Toggle between Chinese and English with one click.
-
-## CLI Menu
-
-| Key | Function |
-|-----|----------|
-| `1` | Download Album |
-| `2` | Download Single Song |
-| `3` | Interactive Track Select |
-| `4` | Download Playlist |
-| `5` | Dolby Atmos Mode |
-| `6` | AAC Mode |
-| `7` | Debug / View Audio Quality |
-| `8` | Search (song/album/artist) |
-| `9` | Download All Artist Albums |
-| `0` | Custom Command |
-| `E` | Export Docker Images (save as .tar) |
-| `H` | Help / Info |
-| `Q` | Quit |
-
-## Configuration
-
-The config file is located at `%LOCALAPPDATA%\AppleMusicDownloader\config.yaml`. Key settings:
-
-| Setting | Description |
-|---------|-------------|
-| `media-user-token` | Apple Music media user token (needed for lyrics and AAC-LC) |
-| `storefront` | Account region code (e.g., `us`, `jp`, `cn`) |
-| `alac-max` | ALAC max sample rate: 192000 / 96000 / 48000 / 44100 |
-| `atmos-max` | Atmos max bitrate: 2768 / 2448 |
-| `aac-type` | AAC type: aac-lc / aac / aac-binaural / aac-downmix |
-| `cover-size` | Cover art size, default 5000x5000 |
-| `cover-format` | Cover format: jpg / png / original |
-| `lrc-type` | Lyrics type: lyrics / syllable-lyrics |
-| `lrc-format` | Lyrics format: lrc / ttml |
-| `embed-lrc` | Embed lyrics in file |
-| `embed-cover` | Embed cover art in file |
-| `album-folder-format` | Album folder naming template |
-| `playlist-folder-format` | Playlist folder naming template |
-| `song-file-format` | Song file naming template |
-| `artist-folder-format` | Artist folder naming template (leave empty to skip) |
-| `convert-after-download` | Enable post-download format conversion |
-| `convert-format` | Target format: flac / mp3 / opus / wav / copy |
-| `convert-keep-original` | Keep original file after conversion |
-| `mv-audio-type` | MV audio type: atmos / ac3 / aac |
-| `mv-max` | MV max resolution, default 2160 |
-
-### Naming Template Variables
-
-- Album folder: `{AlbumId}` `{AlbumName}` `{ArtistName}` `{ReleaseDate}` `{ReleaseYear}` `{UPC}` `{Copyright}` `{Quality}` `{Codec}` `{Tag}` `{RecordLabel}`
-- Playlist folder: `{PlaylistId}` `{PlaylistName}` `{ArtistName}` `{Quality}` `{Codec}` `{Tag}`
-- Song file: `{SongId}` `{SongNumer}` `{SongName}` `{DiscNumber}` `{TrackNumber}` `{Quality}` `{Codec}` `{Tag}`
-- Artist folder: `{ArtistId}` `{ArtistName}` `{UrlArtistName}`
-
-## Project Structure
-
-```
-.
-├── apple_music_downloader.py      # CLI entry point
-├── apple_music_downloader_gui.py  # GUI entry point
-├── build.bat                      # Build script
-├── config.yaml.example            # Default config template
-├── requirements.txt               # Python dependencies
-├── assets/
-│   ├── app_icon.ico                       # Application icon
-│   ├── Wrapper/                           # Wrapper source (Dockerfile + binary)
-│   └── apple-music-downloader/            # Downloader source (Go + Dockerfile)
-└── AppleMusicDownloader.exe       # Packaged output (optional)
+cd ../web
+npm run build
 ```
 
-### Runtime Data
+## Upstream and licensing
 
-Login credentials and logs are stored in the user directory:
+This repository builds on:
 
-| Data | Path |
-|------|------|
-| Config | `%LOCALAPPDATA%\AppleMusicDownloader\config.yaml` |
-| Credentials | `%LOCALAPPDATA%\AppleMusicDownloader\wrapper-data\` |
-| Logs | `%LOCALAPPDATA%\AppleMusicDownloader\log\` |
-| Downloads | User Downloads folder |
+- [2744317644/apple_music_downloader](https://github.com/2744317644/apple_music_downloader)
+- [zhaarey/apple-music-downloader](https://github.com/zhaarey/apple-music-downloader)
+- [WorldObservationLog/wrapper](https://github.com/WorldObservationLog/wrapper)
 
-## FAQ
-
-**Q: Docker not installed?**
-Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) and ensure the `docker` command is available in the terminal.
-
-**Q: GUI crashes or freezes on startup?**
-- Ensure Docker Desktop is running
-- First launch requires building images, which may take 1–3 minutes
-- Check logs at: `%LOCALAPPDATA%\AppleMusicDownloader\log\`
-
-**Q: "Failed to get token"?**
-- Check if you can access `music.apple.com`
-- Log into Apple Music in a browser, then manually copy the `authorization-token` into the config file
-
-**Q: Login failed?**
-- Verify your Apple ID and password (an app-specific password may be required)
-- Check Wrapper container logs for details
-- Delete `%LOCALAPPDATA%\AppleMusicDownloader\wrapper-data\` and retry
-
-**Q: No files after download?**
-- Verify the save path in the config is correct and writable
-- Check that the download log shows "Completed" rather than "Warnings" or "Errors"
-
-**Q: Lyrics not working?**
-Ensure `storefront` matches your Apple Music account region (e.g., `us` for United States).
-
-**Q: EXE build failed?**
-- Close any running `AppleMusicDownloader.exe`
-- Ensure dependencies are installed: `pip install -r requirements.txt`
-
-**Q: How to migrate between machines without rebuilding images?**
-Use the import/export feature: export .tar files on the built machine (press `E` in CLI), copy them to the new machine, then load via `--image-dir` (CLI) or the startup dialog (GUI). No rebuild needed.
+Individual directories and components remain subject to their upstream licenses. This repository does not currently declare an additional license covering the combined work.

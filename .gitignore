@@ -1,1 +1,14 @@
 /.idea
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.env
+web/node_modules/
+web/dist/
+/app-data/
+/wrapper-data/
+/downloads/
+/*.tar
+*.log
+.DS_Store
+Thumbs.db

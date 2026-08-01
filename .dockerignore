@@ -1,0 +1,12 @@
+.git
+.idea
+__pycache__
+*.pyc
+.env
+build
+build_temp
+dist
+web/node_modules
+web/dist
+assets/Wrapper
+AppleMusicDownloader.exe

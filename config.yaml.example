@@ -4,7 +4,9 @@ language: ""         #supportedLanguage by each storefront --> https://gist.gith
 lrc-type: "lyrics"   #lyrics or syllable-lyrics
 lrc-format: "lrc"   #lrc or ttml
 embed-lrc: true
+embed-lrc-type: "word"   #word (逐字) or line (逐行)
 save-lrc-file: false
+save-lrc-file-type: "line"   #word (逐字) or line (逐行)
 save-artist-cover: false
 save-animated-artwork: false    # If enabled, requires ffmpeg
 emby-animated-artwork: false    # If enabled, requires ffmpeg

@@ -1,286 +1,241 @@
-# Apple Music ALAC Downloader
+# AM download
 
 [English](README_EN.md) | 中文
 
-> Apple Music 无损 ALAC / 杜比全景声 Dolby Atmos / AAC 下载工具
+AM download 是一个带 Web 界面的 Apple Music 下载管理器。它将原下载核心的命令行参数转换为浏览器操作，并提供 Docker Compose 与飞牛 fnOS 部署配置。
 
-## 致谢
+> 本项目仅用于管理使用者有权访问的内容。使用者需要自行遵守 Apple 服务条款、当地法律和上游组件许可证。
 
-本项目基于以下优秀的开源项目构建：
+## 功能
 
-- **[apple-music-downloader](https://github.com/zhaarey/apple-music-downloader)** — Apple Music ALAC / Atmos / AAC 下载核心，提供 Go 语言实现的完整下载引擎
-- **[wrapper](https://github.com/WorldObservationLog/wrapper)** — Apple Music Android DRM 解密服务，提供 FairPlay 解密与 M3U8 获取能力
+- Web 界面创建、查看、取消和清理下载任务
+- 支持专辑、单曲、播放列表、艺人、Dolby Atmos、AAC 和音乐视频
+- 支持 ALAC、Atmos、AAC-LC、AAC、AAC Binaural 与 AAC Downmix
+- 在网页中完成 Apple ID 登录、2FA 验证和 Wrapper 重启
+- 支持嵌入封面和下载后格式转换
+- 嵌入歌词可独立选择逐字或逐行
+- 独立歌词文件可独立选择逐字或逐行
+- 配置、登录状态、下载结果持久化保存
+- 针对 Docker 和飞牛 fnOS 的双容器部署
 
-感谢以上项目的作者和贡献者们。
+## 架构
 
-## 功能特性
+AM download 由两个容器组成：
 
-- 支持 ALAC 无损下载（最高 192kHz）
-- 支持 Dolby Atmos 杜比全景声下载
-- 支持 AAC-LC / AAC / AAC-Binaural / AAC-Downmix 下载
-- 支持整张专辑、单曲、播放列表下载
-- 支持歌词下载（LRC / TTML）
-- 支持封面嵌入、动画封面下载
-- 支持下载后格式转换（FLAC / MP3 / Opus / WAV）
-- 自定义文件名和文件夹命名
-- **GUI 图形界面**（侧边栏页签导航，5 个功能页签）
-- **中英文切换**（一键切换界面语言）
-- **一键登录**（Apple ID 凭据自动缓存）
-- **环境自检**（启动时自动检测 Docker、镜像、服务状态）
-- **内置配置编辑**（GUI 内直接编辑保存配置文件）
-- **FLAC/WAV 格式转换**（递归扫描 .m4a，支持自动安装 ffmpeg）
-- **音频文件重命名**（按编号或艺术家标签批量重命名）
-- **下载进度实时显示**（日志持久化保存）
-- **Docker 镜像导入/导出**（支持本地 .tar 镜像文件，免构建快速部署）
-- **单文件打包**（PyInstaller 打包为独立 EXE）
+| 服务 | 镜像 | 用途 |
+| --- | --- | --- |
+| `app` | `bobcc4/am-download:v1.0.4` | Web UI、API、任务管理和下载核心 |
+| `wrapper` | `bobcc4/am-download-wrapper:v1.0.4` | Apple Music Android/FairPlay 辅助服务 |
 
-## 环境要求
+Wrapper 必须以特权模式运行，但其管理端口不应映射到主机。浏览器只访问 App 容器的 `8080` 端口。
 
-- **Python 3.7+**
-- **Docker**（必须安装且可正常运行）
+当前 Docker 镜像仅提供 `linux/amd64`。ARM64 NAS 需要启用模拟，性能和兼容性不作保证。
 
-### CLI 版本额外依赖
+## 快速部署
+
+### Docker Compose
+
+克隆仓库并创建环境文件：
 
 ```bash
-pip install -r requirements.txt
+git clone https://github.com/bobcc4/am-download.git
+cd am-download
+cp .env.example .env
 ```
 
-## 快速开始
+编辑 `.env`：
 
-### 1. 首次启动
-
-首次启动会自动将默认配置复制到 `%LOCALAPPDATA%\AppleMusicDownloader\config.yaml`，无需手动创建配置文件。
-
-根据需要编辑该文件中的关键配置项：
-
-- `media-user-token`: 你的 Apple Music 媒体用户令牌
-- `storefront`: 你的账号所属区域代码（如 `cn`、`us`、`jp`）
-
-### 2. 运行
-
-**终端版本**：
-```bash
-python apple_music_downloader.py
+```env
+DOCKERHUB_NAMESPACE=bobcc4
+AM_DOWNLOAD_BIND=127.0.0.1
+AM_DOWNLOAD_PORT=8080
+AM_DOWNLOAD_PASSWORD=change-this-password
+MANAGER_TOKEN=replace-with-a-long-random-value
+TZ=Asia/Shanghai
 ```
 
-使用本地镜像导入（跳过源码构建）：
-```bash
-python apple_music_downloader.py --image-dir ./docker-images
-```
-`--image-dir` 指定包含 `.tar` 镜像文件的目录，启动时自动执行 `docker load` 加载。
+`MANAGER_TOKEN` 用于两个容器之间的内部认证，必须保持一致。需要从局域网访问时，将 `AM_DOWNLOAD_BIND` 改为主机局域网 IP 或 `0.0.0.0`，并务必设置 `AM_DOWNLOAD_PASSWORD`。
 
-**GUI 版本**：
-```bash
-python apple_music_downloader_gui.py
-```
-
-首次运行会自动：
-- 构建 Wrapper 和 Downloader Docker 镜像
-- 引导完成 Apple Music 登录
-- 登录凭据自动缓存，后续无需重复
-
-### 3. 下载文件在哪
-
-| 下载模式 | 保存位置 |
-|----------|----------|
-| ALAC | `Downloads\AM-DL downloads\` |
-| 杜比全景声 | `Downloads\AM-DL-Atmos downloads\` |
-| AAC | `Downloads\AM-DL-AAC downloads\` |
-| MV | `Downloads\AM-DL-MV downloads\` |
-
-> 保存路径可通过配置文件中的 `alac-save-folder` 等字段自定义。GUI 底部状态栏也会显示输出路径，点击文件夹图标可直接打开。
-
-### 4. 打包为 EXE
+启动：
 
 ```bash
-build.bat
+docker compose -f compose.dockerhub.yaml up -d
 ```
 
-生成 `AppleMusicDownloader.exe`。
+浏览器访问 `http://主机地址:8080`。
 
-## 镜像说明
+查看状态和日志：
 
-| 组件 | 来源 | 说明 |
-|------|------|------|
-| wrapper | `assets/Wrapper/` | 本地构建，Dockerfile + wrapper 二进制已打包进 exe |
-| downloader | `assets/apple-music-downloader/` | 本地构建，Go 源码 + Dockerfile 已打包进 exe |
-
-### 本地镜像导入
-
-如果已有导出的 `.tar` 镜像文件，可跳过构建直接加载：
-
-**CLI**：启动时通过 `--image-dir` 参数指定镜像目录
-
-**GUI**：启动时弹窗询问"是否使用本地镜像"，选择"是"后选取目录即可
-
-系统会自动加载目录下所有 `.tar` 文件，并根据关键词（`wrapper`、`apple-music-downloader`）自动匹配标签。如果标签不匹配，会执行 `docker tag` 修正。
-
-### 镜像导出
-
-**CLI**：主菜单按 `E`，选择输出目录，导出 `wrapper_local.tar` 和 `apple-music-downloader_local.tar`
-
-**GUI**：状态页 → 镜像卡片 → 点击「导出镜像」按钮
-
-## GUI 使用说明
-
-界面采用侧边栏页签导航，包含五个页签：
-
-### 下载
-
-| 组件 | 功能 |
-|------|------|
-| 模式选择 | 点击左侧按钮弹出下拉菜单，选择：专辑 / 单曲 / 播放列表 / 杜比全景声 / AAC |
-| URL 输入框 | 粘贴 Apple Music 链接，支持右键粘贴 |
-| Download 按钮 | 点击开始下载，下载中变红，再次点击取消下载 |
-| 清除按钮（×） | 清空 URL |
-| 输出日志 | 实时显示下载进度，进度行原地刷新 |
-| Clear 按钮 | 清空日志 |
-| 状态栏 | 左侧显示 Wrapper 运行状态，右侧显示输出路径并支持点击打开 |
-
-### 状态
-
-| 显示项 | 说明 |
-|--------|------|
-| Docker | 安装状态、守护进程运行状态 |
-| 镜像 | Wrapper 镜像、下载器镜像是否已构建，支持导出 .tar |
-| Wrapper 容器 | 运行状态、端口映射 |
-| 登录 | 凭据缓存状态 |
-| 路径 | 配置文件、日志目录、Wrapper 数据目录路径，可点击打开 |
-
-### 配置
-
-内置 YAML 编辑器，可直接修改配置文件并保存。重新加载按钮可重读当前生效配置。
-
-### 转换
-
-| 组件 | 功能 |
-|------|------|
-| 目录选择 | 选择 .m4a 文件所在目录 |
-| 格式选择 | 选择目标输出格式：FLAC / WAV |
-| 开始转换 | 递归扫描目录下所有 .m4a 文件并转换，支持跳过已转换文件 |
-
-> 使用 ffmpeg 直接编码（libFLAC），无需额外管道。若系统未安装 ffmpeg，可自动通过 winget 安装。
-
-### 重命名
-
-| 组件 | 功能 |
-|------|------|
-| 目录选择 | 选择 FLAC / WAV 文件所在目录 |
-| 格式选择 | 选择命名模板：「编号. 音乐名」或「歌手 - 音乐名」 |
-| 执行重命名 | 递归扫描目录下所有 .flac / .wav 文件，通过 ffprobe 读取标签并重命名 |
-
-### 语言切换
-
-侧边栏底部和登录页右上角均有语言切换按钮，支持中文 / English 一键切换。
-
-## 终端菜单说明
-
-| 选项 | 功能 |
-|------|------|
-| `1` | 下载专辑 |
-| `2` | 下载单曲 |
-| `3` | 交互式选曲 |
-| `4` | 下载播放列表 |
-| `5` | Dolby Atmos 模式 |
-| `6` | AAC 模式 |
-| `7` | 调试 / 查看音质信息 |
-| `8` | 搜索（歌曲/专辑/艺人） |
-| `9` | 下载艺人全部专辑 |
-| `0` | 自定义命令 |
-| `E` | 导出 Docker 镜像（保存为 .tar） |
-| `H` | 帮助信息 |
-| `Q` | 退出 |
-
-## 配置说明
-
-配置文件位于 `%LOCALAPPDATA%\AppleMusicDownloader\config.yaml`，常用配置：
-
-| 配置项 | 说明 |
-|--------|------|
-| `media-user-token` | Apple Music 媒体用户令牌（获取歌词和 AAC-LC 需要） |
-| `storefront` | 账号所属区域代码（如 `cn`、`us`、`jp`） |
-| `alac-max` | ALAC 最高采样率：192000 / 96000 / 48000 / 44100 |
-| `atmos-max` | Atmos 最高码率：2768 / 2448 |
-| `aac-type` | AAC 类型：aac-lc / aac / aac-binaural / aac-downmix |
-| `cover-size` | 封面尺寸，默认 5000x5000 |
-| `cover-format` | 封面格式：jpg / png / original |
-| `lrc-type` | 歌词类型：lyrics / syllable-lyrics |
-| `lrc-format` | 歌词格式：lrc / ttml |
-| `embed-lrc` | 是否嵌入歌词 |
-| `embed-cover` | 是否嵌入封面 |
-| `album-folder-format` | 专辑文件夹命名格式 |
-| `playlist-folder-format` | 播放列表文件夹命名格式 |
-| `song-file-format` | 单曲文件命名格式 |
-| `artist-folder-format` | 艺术家文件夹命名格式（留空则不创建） |
-| `convert-after-download` | 下载后是否转换格式 |
-| `convert-format` | 转换目标格式：flac / mp3 / opus / wav / copy |
-| `convert-keep-original` | 转换后是否保留原始文件 |
-| `mv-audio-type` | MV 音频类型：atmos / ac3 / aac |
-| `mv-max` | MV 最高分辨率，默认 2160 |
-
-### 文件名模板变量
-
-- 专辑文件夹：`{AlbumId}` `{AlbumName}` `{ArtistName}` `{ReleaseDate}` `{ReleaseYear}` `{UPC}` `{Copyright}` `{Quality}` `{Codec}` `{Tag}` `{RecordLabel}`
-- 播放列表文件夹：`{PlaylistId}` `{PlaylistName}` `{ArtistName}` `{Quality}` `{Codec}` `{Tag}`
-- 单曲文件：`{SongId}` `{SongNumer}` `{SongName}` `{DiscNumber}` `{TrackNumber}` `{Quality}` `{Codec}` `{Tag}`
-- 艺术家文件夹：`{ArtistId}` `{ArtistName}` `{UrlArtistName}`
-
-## 项目结构
-
-```
-.
-├── apple_music_downloader.py      # 终端版入口
-├── apple_music_downloader_gui.py  # GUI 版入口
-├── build.bat                      # 打包脚本
-├── config.yaml.example            # 默认配置示例
-├── requirements.txt               # Python 依赖
-├── assets/
-│   ├── app_icon.ico                       # 应用图标
-│   ├── Wrapper/                           # Wrapper 源码（Dockerfile + 二进制）
-│   └── apple-music-downloader/            # Downloader 源码（Go + Dockerfile）
-└── AppleMusicDownloader.exe       # 打包产物（可选）
+```bash
+docker compose -f compose.dockerhub.yaml ps
+docker compose -f compose.dockerhub.yaml logs -f --tail=200
 ```
 
-### 运行时数据
+停止服务不会删除数据：
 
-登录凭据和运行日志存放在用户目录下：
+```bash
+docker compose -f compose.dockerhub.yaml down
+```
 
-| 数据 | 路径 |
-|------|------|
-| 配置文件 | `%LOCALAPPDATA%\AppleMusicDownloader\config.yaml` |
-| 登录凭据 | `%LOCALAPPDATA%\AppleMusicDownloader\wrapper-data\` |
-| 运行日志 | `%LOCALAPPDATA%\AppleMusicDownloader\log\` |
-| 下载文件 | 用户 Downloads 文件夹 |
+不要使用 `down -v`，除非确定要删除配置、Apple 登录状态和下载内容。
 
-## 常见问题
+### 飞牛 fnOS
 
-**Q: 提示 Docker 未安装？**
-安装 [Docker Desktop](https://www.docker.com/products/docker-desktop/) 并确保 `docker` 命令可在终端中使用。
+飞牛使用 [compose.fnos.yaml](compose.fnos.yaml)。在 Compose 项目环境变量中设置：
 
-**Q: GUI 启动闪退或无响应？**
-- 确保 Docker Desktop 已启动且状态正常
-- 首次启动需要构建镜像，可能耗时 1-3 分钟，请耐心等待
-- 查看日志：`%LOCALAPPDATA%\AppleMusicDownloader\log\`
+```env
+MANAGER_TOKEN=replace-with-a-long-random-value
+AM_DOWNLOAD_PASSWORD=change-this-password
+```
 
-**Q: 提示 "Failed to get token"？**
-- 检查网络是否能访问 `music.apple.com`
-- 在浏览器登录 Apple Music 后，手动复制 `authorization-token` 填入配置文件
+默认 Web 端口映射为：
 
-**Q: 登录失败？**
-- 确认 Apple ID 和密码正确（可能需要使用 App 专用密码）
-- 查看 Wrapper 容器日志排查具体原因
-- 删除 `%LOCALAPPDATA%\AppleMusicDownloader\wrapper-data\` 重试
+```yaml
+published: "18333"
+target: 8080
+```
 
-**Q: 下载后没有文件？**
-- 检查配置中的保存路径是否正确，确保路径有写入权限
-- 确认下载日志中显示 "Completed" 而非 "Warnings" 或 "Errors"
+需要更换访问端口时，只修改 `published`。例如使用主机端口 `19000`：
 
-**Q: 歌词获取失败？**
-确认 `storefront` 与你 Apple Music 账号的区域一致（如中国区填 `cn`）。
+```yaml
+published: "19000"
+target: 8080
+```
 
-**Q: 打包 EXE 失败？**
-- 确保已关闭正在运行的 `AppleMusicDownloader.exe`
-- 确保 `requirements.txt` 中的依赖已安装：`pip install -r requirements.txt`
+不要修改容器内的 `target: 8080`。部署成功后访问 `http://飞牛地址:18333`。
 
-**Q: 如何在多台电脑间迁移，避免重复构建镜像？**
-使用镜像导入/导出功能：在已构建完成的电脑上按 `E` 导出 .tar 文件，拷贝到新电脑后用 `--image-dir`（CLI）或启动弹窗（GUI）加载即可，无需重新构建。
+飞牛目录：
+
+| 目录 | 内容 |
+| --- | --- |
+| `./app-data` | 配置和任务记录 |
+| `./wrapper-data` | Apple 登录与 FairPlay 数据 |
+| `./downloads` | 下载结果 |
+
+这些目录会由容器启动流程自动初始化，不需要额外的权限辅助容器。
+
+## 首次登录
+
+1. 打开 Web 页面并输入 `AM_DOWNLOAD_PASSWORD`。
+2. 进入“系统状态”，选择 Apple Music 登录。
+3. 输入 Apple ID 和密码。
+4. 如果 Apple 要求 2FA，直接在网页弹窗中输入六位验证码。
+5. 登录完成后确认 Wrapper 状态为“已登录”。
+
+Apple ID 密码只在当前登录请求中使用，不写入 AM download 配置或任务日志。登录状态保存在 `wrapper-data`，正常升级容器不需要重新登录。
+
+## 下载与歌词
+
+在“下载”页面选择任务类型并粘贴 Apple Music 链接。下载任务在后台执行，关闭浏览器不会停止容器中的任务。
+
+歌词相关设置位于“设置”页面：
+
+| 设置 | 可选值 | 默认值 |
+| --- | --- | --- |
+| 嵌入歌词 | 逐字、逐行 | 逐字 |
+| 保存独立歌词文件 | 逐字、逐行 | 逐行 |
+
+两个选项相互独立。例如可以在音频标签中嵌入逐字歌词，同时保存逐行 LRC 文件。获取歌词、AAC-LC 和音乐视频通常需要有效的 `media-user-token`。
+
+## 更新
+
+固定版本更新：
+
+```bash
+docker compose -f compose.dockerhub.yaml pull
+docker compose -f compose.dockerhub.yaml up -d
+```
+
+飞牛用户在 Compose 项目中将两个镜像标签更新到相同版本，然后重新拉取并部署。不要删除 `app-data`、`wrapper-data` 或 `downloads`。
+
+## 数据备份
+
+普通 Docker Compose 使用以下命名卷：
+
+| 卷 | 内容 |
+| --- | --- |
+| `am-download-data` | 配置与最近任务记录 |
+| `am-download-wrapper-data` | Apple 登录状态 |
+| `am-download-files` | 下载结果 |
+
+飞牛使用绑定目录，停止 Compose 项目后直接备份三个目录即可。备份文件可能包含账号登录状态，应按敏感数据管理。
+
+## 从源码构建
+
+构建并启动本地版本：
+
+```bash
+docker compose -f compose.yaml build
+docker compose -f compose.yaml up -d
+```
+
+前端开发：
+
+```bash
+cd web
+npm install
+npm run dev
+```
+
+主要目录：
+
+| 路径 | 说明 |
+| --- | --- |
+| `web/` | React/Vite Web 前端 |
+| `server/` | FastAPI 服务和任务管理 |
+| `assets/apple-music-downloader/` | Go 下载核心 |
+| `assets/Wrapper/manager/` | Wrapper 管理服务 |
+| `Dockerfile` | App 多阶段构建 |
+| `compose.fnos.yaml` | 飞牛部署配置 |
+
+## 测试
+
+```bash
+cd assets/apple-music-downloader
+go test ./...
+
+cd ../../server
+python -m unittest discover -s tests -v
+
+cd ../web
+npm run build
+```
+
+## 故障排查
+
+### 页面无法访问
+
+- 检查 Compose 中 `published` 端口是否被占用。
+- 确认只修改主机端口，容器端口保持 `8080`。
+- 使用 `docker compose ps` 确认两个容器均为 healthy。
+
+### App 显示部分运行
+
+App 会等待 Wrapper 健康后启动。检查：
+
+```bash
+docker logs --tail=200 am-download-wrapper
+docker logs --tail=200 am-download
+```
+
+### 2FA 超时
+
+保持登录弹窗打开，在 60 秒内将六位验证码提交到网页。不要在主机上手动创建 `2fa.txt`；Web 服务会把验证码写入 Wrapper 所需位置。
+
+### 修改主机端口后不可用
+
+正确格式是 `主机端口:8080`。飞牛长语法中只修改 `published`，不要修改 `target`。
+
+### 权限错误
+
+确认飞牛项目目录可被 Docker 访问。当前入口程序会初始化 `app-data` 和 `downloads` 权限，不需要常驻的 permissions 容器。
+
+## 上游与许可
+
+本项目基于以下开源项目继续开发：
+
+- [2744317644/apple_music_downloader](https://github.com/2744317644/apple_music_downloader)
+- [zhaarey/apple-music-downloader](https://github.com/zhaarey/apple-music-downloader)
+- [WorldObservationLog/wrapper](https://github.com/WorldObservationLog/wrapper)
+
+各目录和组件继续受其各自上游许可证约束。本仓库当前未声明覆盖全部组合代码的额外许可证；二次分发前请核对相关上游许可。

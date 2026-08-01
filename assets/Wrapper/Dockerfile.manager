@@ -1,0 +1,22 @@
+ARG REGISTRY_MIRROR=docker.m.daocloud.io
+
+FROM --platform=$BUILDPLATFORM ${REGISTRY_MIRROR}/library/golang:1.23-bookworm AS manager-builder
+WORKDIR /src
+COPY manager/ ./
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o /out/wrapper-manager .
+
+FROM ${REGISTRY_MIRROR}/library/debian:13.2-slim
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates tzdata \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY wrapper /app/wrapper
+COPY rootfs /app/rootfs
+COPY --from=manager-builder /out/wrapper-manager /usr/local/bin/wrapper-manager
+RUN chmod +x /app/wrapper /usr/local/bin/wrapper-manager \
+    && mkdir -p /app/rootfs/data
+VOLUME ["/app/rootfs/data"]
+EXPOSE 10020 20020 30020 18080
+HEALTHCHECK --interval=15s --timeout=3s --start-period=10s --retries=4 \
+  CMD ["/usr/local/bin/wrapper-manager", "healthcheck"]
+ENTRYPOINT ["/usr/local/bin/wrapper-manager"]

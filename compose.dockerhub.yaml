@@ -1,0 +1,58 @@
+name: am-download
+
+services:
+  wrapper:
+    image: ${DOCKERHUB_NAMESPACE:?Set DOCKERHUB_NAMESPACE}/am-download-wrapper:v1.0.4
+    platform: linux/amd64
+    container_name: am-download-wrapper
+    restart: unless-stopped
+    privileged: true
+    environment:
+      MANAGER_TOKEN: ${MANAGER_TOKEN:-am-download-internal}
+      TZ: ${TZ:-Asia/Shanghai}
+    volumes:
+      - wrapper-data:/app/rootfs/data
+    networks: [am-download]
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/wrapper-manager", "healthcheck"]
+      interval: 15s
+      timeout: 3s
+      start_period: 10s
+      retries: 4
+
+  app:
+    image: ${DOCKERHUB_NAMESPACE:?Set DOCKERHUB_NAMESPACE}/am-download:v1.0.4
+    platform: linux/amd64
+    container_name: am-download
+    restart: unless-stopped
+    depends_on:
+      wrapper:
+        condition: service_healthy
+    environment:
+      MANAGER_TOKEN: ${MANAGER_TOKEN:-am-download-internal}
+      AM_DOWNLOAD_PASSWORD: ${AM_DOWNLOAD_PASSWORD:-}
+      TZ: ${TZ:-Asia/Shanghai}
+    ports:
+      - "${AM_DOWNLOAD_BIND:-127.0.0.1}:${AM_DOWNLOAD_PORT:-8080}:8080"
+    volumes:
+      - app-data:/data
+      - downloads:/downloads
+    networks: [am-download]
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
+    security_opt: [no-new-privileges:true]
+
+networks:
+  am-download:
+    name: am-download
+
+volumes:
+  app-data:
+    name: am-download-data
+  wrapper-data:
+    name: am-download-wrapper-data
+  downloads:
+    name: am-download-files

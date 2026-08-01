@@ -1,0 +1,66 @@
+name: am-download
+
+services:
+  wrapper:
+    image: bobcc4/am-download-wrapper:v1.0.4
+    platform: linux/amd64
+    container_name: am-download-wrapper
+    restart: unless-stopped
+    privileged: true
+    environment:
+      TZ: Asia/Shanghai
+      MANAGER_TOKEN: ${MANAGER_TOKEN:?Set MANAGER_TOKEN in the fnOS Compose environment}
+    volumes:
+      - ./wrapper-data:/app/rootfs/data
+    networks:
+      - am-download
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/wrapper-manager", "healthcheck"]
+      interval: 15s
+      timeout: 5s
+      start_period: 20s
+      retries: 5
+
+  app:
+    image: bobcc4/am-download:v1.0.4
+    platform: linux/amd64
+    container_name: am-download
+    restart: unless-stopped
+    depends_on:
+      wrapper:
+        condition: service_healthy
+    environment:
+      TZ: Asia/Shanghai
+      MANAGER_TOKEN: ${MANAGER_TOKEN:?Set MANAGER_TOKEN in the fnOS Compose environment}
+      AM_DOWNLOAD_PASSWORD: ${AM_DOWNLOAD_PASSWORD:?Set AM_DOWNLOAD_PASSWORD in the fnOS Compose environment}
+    ports:
+      # Only change published to select the fnOS host port.
+      # target 8080 is the fixed Web port inside the app container.
+      - name: web
+        target: 8080
+        published: "18333"
+        host_ip: 0.0.0.0
+        protocol: tcp
+    volumes:
+      - ./app-data:/data
+      - ./downloads:/downloads
+    networks:
+      - am-download
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  am-download:
+    name: am-download
+    driver: bridge

@@ -108,6 +108,17 @@ func fileExists(path string) (bool, error) {
 	return false, err
 }
 
+func normalizeLyricMode(value, fallback string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "word", "syllable", "逐字":
+		return "word"
+	case "line", "逐行":
+		return "line"
+	default:
+		return fallback
+	}
+}
+
 func checkUrl(url string) (string, string) {
 	pat := regexp.MustCompile(`^(?:https:\/\/(?:beta\.music|music|classical\.music)\.apple\.com\/(\w{2})(?:\/album|\/album\/.+))\/(?:id)?(\d[^\D]+)(?:$|\?)`)
 	matches := pat.FindAllStringSubmatch(url, -1)
@@ -964,18 +975,32 @@ func ripTrack(track *task.Track, token string, mediaUserToken string) {
 	//get lrc
 	var lrc string = ""
 	if Config.EmbedLrc || Config.SaveLrcFile {
-		lrcStr, err := lyrics.Get(track.Storefront, track.ID, Config.LrcType, Config.Language, Config.LrcFormat, token, mediaUserToken)
-		if err != nil {
-			fmt.Println(err)
-		} else {
-			if Config.SaveLrcFile {
-				err := writeLyrics(track.SaveDir, lrcFilename, lrcStr)
-				if err != nil {
-					fmt.Printf("Failed to write lyrics")
-				}
+		lyricsByMode := make(map[string]string)
+		getLyrics := func(mode string) (string, error) {
+			if cached, ok := lyricsByMode[mode]; ok {
+				return cached, nil
 			}
-			if Config.EmbedLrc {
-				lrc = lrcStr
+			value, err := lyrics.Get(track.Storefront, track.ID, Config.LrcType, Config.Language, Config.LrcFormat, token, mediaUserToken, mode)
+			if err == nil {
+				lyricsByMode[mode] = value
+			}
+			return value, err
+		}
+		embedMode := normalizeLyricMode(Config.EmbedLrcType, "word")
+		saveMode := normalizeLyricMode(Config.SaveLrcFileType, "line")
+		if Config.EmbedLrc {
+			lrc, err = getLyrics(embedMode)
+			if err != nil {
+				fmt.Println(err)
+				lrc = ""
+			}
+		}
+		if Config.SaveLrcFile {
+			lrcStr, err := getLyrics(saveMode)
+			if err != nil {
+				fmt.Println(err)
+			} else if err := writeLyrics(track.SaveDir, lrcFilename, lrcStr); err != nil {
+				fmt.Printf("Failed to write lyrics")
 			}
 		}
 	}

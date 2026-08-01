@@ -6,11 +6,13 @@ type ConfigSet struct {
 	AuthorizationToken         string `yaml:"authorization-token"`
 	Language                   string `yaml:"language"`
 	SaveLrcFile                bool   `yaml:"save-lrc-file"`
+	SaveLrcFileType            string `yaml:"save-lrc-file-type"`
 	LrcType                    string `yaml:"lrc-type"`
 	LrcFormat                  string `yaml:"lrc-format"`
 	SaveAnimatedArtwork        bool   `yaml:"save-animated-artwork"`
 	EmbyAnimatedArtwork        bool   `yaml:"emby-animated-artwork"`
 	EmbedLrc                   bool   `yaml:"embed-lrc"`
+	EmbedLrcType               string `yaml:"embed-lrc-type"`
 	EmbedCover                 bool   `yaml:"embed-cover"`
 	SaveArtistCover            bool   `yaml:"save-artist-cover"`
 	CoverSize                  string `yaml:"cover-size"`
