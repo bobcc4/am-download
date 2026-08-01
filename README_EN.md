@@ -29,28 +29,18 @@ The published runtime images currently support `linux/amd64` only.
 ```bash
 git clone https://github.com/bobcc4/am-download.git
 cd am-download
-cp .env.example .env
 docker compose -f compose.dockerhub.yaml up -d
 ```
 
-Configure `.env` before starting:
+Edit `compose.dockerhub.yaml` directly before starting. Change `MANAGER_TOKEN` to the same private value in both services and set a strong `AM_DOWNLOAD_PASSWORD`. No `.env` file is required.
 
-```env
-DOCKERHUB_NAMESPACE=bobcc4
-AM_DOWNLOAD_BIND=127.0.0.1
-AM_DOWNLOAD_PORT=8080
-AM_DOWNLOAD_PASSWORD=change-this-password
-MANAGER_TOKEN=replace-with-a-long-random-value
-TZ=Asia/Shanghai
-```
-
-Open `http://127.0.0.1:8080`. Set a strong `AM_DOWNLOAD_PASSWORD` before exposing the service to a LAN.
+Open `http://host-address:8333`. The host port can be changed in Compose, but the container port must remain `8080`.
 
 ## fnOS
 
-Use [compose.fnos.yaml](compose.fnos.yaml). Define `MANAGER_TOKEN` and `AM_DOWNLOAD_PASSWORD` in the fnOS Compose environment.
+Use [compose.fnos.yaml](compose.fnos.yaml) or paste the complete Compose shown in the Chinese [README](README.md). Change `MANAGER_TOKEN` and `AM_DOWNLOAD_PASSWORD` directly in the Compose editor.
 
-The default mapping is host port `18333` to container port `8080`. To use another host port, change only `published`; keep `target: 8080`.
+The default mapping is host port `8333` to container port `8080`. To use another host port, change only `published`; keep `target: 8080`.
 
 Persistent directories:
 

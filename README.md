@@ -27,84 +27,92 @@ AM download 由两个容器组成：
 | `app` | `bobcc4/am-download:v1.0.4` | Web UI、API、任务管理和下载核心 |
 | `wrapper` | `bobcc4/am-download-wrapper:v1.0.4` | Apple Music Android/FairPlay 辅助服务 |
 
-Wrapper 必须以特权模式运行，但其管理端口不应映射到主机。浏览器只访问 App 容器的 `8080` 端口。
+Wrapper 必须以特权模式运行，但其管理端口不应映射到主机。默认通过主机端口 `8333` 访问，映射到 App 容器内部的 `8080`。
 
 当前 Docker 镜像仅提供 `linux/amd64`。ARM64 NAS 需要启用模拟，性能和兼容性不作保证。
 
 ## 快速部署
 
-### Docker Compose
-
-克隆仓库并创建环境文件：
-
-```bash
-git clone https://github.com/bobcc4/am-download.git
-cd am-download
-cp .env.example .env
-```
-
-编辑 `.env`：
-
-```env
-DOCKERHUB_NAMESPACE=bobcc4
-AM_DOWNLOAD_BIND=127.0.0.1
-AM_DOWNLOAD_PORT=8080
-AM_DOWNLOAD_PASSWORD=change-this-password
-MANAGER_TOKEN=replace-with-a-long-random-value
-TZ=Asia/Shanghai
-```
-
-`MANAGER_TOKEN` 用于两个容器之间的内部认证，必须保持一致。需要从局域网访问时，将 `AM_DOWNLOAD_BIND` 改为主机局域网 IP 或 `0.0.0.0`，并务必设置 `AM_DOWNLOAD_PASSWORD`。
-
-启动：
-
-```bash
-docker compose -f compose.dockerhub.yaml up -d
-```
-
-浏览器访问 `http://主机地址:8080`。
-
-查看状态和日志：
-
-```bash
-docker compose -f compose.dockerhub.yaml ps
-docker compose -f compose.dockerhub.yaml logs -f --tail=200
-```
-
-停止服务不会删除数据：
-
-```bash
-docker compose -f compose.dockerhub.yaml down
-```
-
-不要使用 `down -v`，除非确定要删除配置、Apple 登录状态和下载内容。
-
-### 飞牛 fnOS
-
-飞牛使用 [compose.fnos.yaml](compose.fnos.yaml)。在 Compose 项目环境变量中设置：
-
-```env
-MANAGER_TOKEN=replace-with-a-long-random-value
-AM_DOWNLOAD_PASSWORD=change-this-password
-```
-
-默认 Web 端口映射为：
+下面的 Compose 可直接用于 Docker Compose 或飞牛 fnOS。部署前修改两处 `change-this-manager-token`，确保值完全相同；再修改 `change-this-password`。
 
 ```yaml
-published: "18333"
-target: 8080
+name: am-download
+
+services:
+  wrapper:
+    image: bobcc4/am-download-wrapper:v1.0.4
+    platform: linux/amd64
+    container_name: am-download-wrapper
+    restart: unless-stopped
+    privileged: true
+    environment:
+      TZ: Asia/Shanghai
+      # 修改此值，并确保与 app 中的值完全相同。
+      MANAGER_TOKEN: change-this-manager-token
+    volumes:
+      - ./wrapper-data:/app/rootfs/data
+    networks:
+      - am-download
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/wrapper-manager", "healthcheck"]
+      interval: 15s
+      timeout: 5s
+      start_period: 20s
+      retries: 5
+
+  app:
+    image: bobcc4/am-download:v1.0.4
+    platform: linux/amd64
+    container_name: am-download
+    restart: unless-stopped
+    depends_on:
+      wrapper:
+        condition: service_healthy
+    environment:
+      TZ: Asia/Shanghai
+      MANAGER_TOKEN: change-this-manager-token
+      # 部署前修改 Web 登录密码。
+      AM_DOWNLOAD_PASSWORD: change-this-password
+    ports:
+      - name: web
+        target: 8080
+        published: "8333"
+        host_ip: 0.0.0.0
+        protocol: tcp
+    volumes:
+      - ./app-data:/data
+      - ./downloads:/downloads
+    networks:
+      - am-download
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  am-download:
+    name: am-download
+    driver: bridge
 ```
 
-需要更换访问端口时，只修改 `published`。例如使用主机端口 `19000`：
+仓库内也提供相同的 [compose.fnos.yaml](compose.fnos.yaml)。飞牛用户可将以上内容直接粘贴到 Compose 项目。普通 Docker 用户保存为 `compose.yaml` 后运行：
 
-```yaml
-published: "19000"
-target: 8080
+```bash
+docker compose up -d
 ```
 
-不要修改容器内的 `target: 8080`。部署成功后访问 `http://飞牛地址:18333`。
+默认访问地址为 `http://主机地址:8333`。需要更换主机端口时，只修改 `published: "8333"`；容器端口 `target: 8080` 必须保持不变。
 
-飞牛目录：
+持久化目录：
 
 | 目录 | 内容 |
 | --- | --- |
@@ -112,7 +120,7 @@ target: 8080
 | `./wrapper-data` | Apple 登录与 FairPlay 数据 |
 | `./downloads` | 下载结果 |
 
-这些目录会由容器启动流程自动初始化，不需要额外的权限辅助容器。
+这些目录会由容器启动流程自动初始化，不需要额外的权限辅助容器。停止服务可运行 `docker compose down`，不要删除上述目录。
 
 ## 首次登录
 

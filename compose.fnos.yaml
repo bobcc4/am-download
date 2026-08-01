@@ -9,7 +9,8 @@ services:
     privileged: true
     environment:
       TZ: Asia/Shanghai
-      MANAGER_TOKEN: ${MANAGER_TOKEN:?Set MANAGER_TOKEN in the fnOS Compose environment}
+      # Change this value and keep it identical in both services.
+      MANAGER_TOKEN: change-this-manager-token
     volumes:
       - ./wrapper-data:/app/rootfs/data
     networks:
@@ -31,14 +32,15 @@ services:
         condition: service_healthy
     environment:
       TZ: Asia/Shanghai
-      MANAGER_TOKEN: ${MANAGER_TOKEN:?Set MANAGER_TOKEN in the fnOS Compose environment}
-      AM_DOWNLOAD_PASSWORD: ${AM_DOWNLOAD_PASSWORD:?Set AM_DOWNLOAD_PASSWORD in the fnOS Compose environment}
+      MANAGER_TOKEN: change-this-manager-token
+      # Change this password before deployment.
+      AM_DOWNLOAD_PASSWORD: change-this-password
     ports:
       # Only change published to select the fnOS host port.
       # target 8080 is the fixed Web port inside the app container.
       - name: web
         target: 8080
-        published: "18333"
+        published: "8333"
         host_ip: 0.0.0.0
         protocol: tcp
     volumes:

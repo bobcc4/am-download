@@ -2,7 +2,7 @@ name: am-download
 
 services:
   wrapper:
-    image: ${AM_DOWNLOAD_WRAPPER_IMAGE:-am-download-wrapper:v1.0.4}
+    image: am-download-wrapper:v1.0.4
     build:
       context: ./assets/Wrapper
       dockerfile: Dockerfile.manager
@@ -11,8 +11,8 @@ services:
     restart: unless-stopped
     privileged: true
     environment:
-      MANAGER_TOKEN: ${MANAGER_TOKEN:-am-download-internal}
-      TZ: ${TZ:-Asia/Shanghai}
+      MANAGER_TOKEN: change-this-manager-token
+      TZ: Asia/Shanghai
     volumes:
       - wrapper-data:/app/rootfs/data
     networks:
@@ -25,7 +25,7 @@ services:
       retries: 4
 
   app:
-    image: ${AM_DOWNLOAD_IMAGE:-am-download:v1.0.4}
+    image: am-download:v1.0.4
     build:
       context: .
       dockerfile: Dockerfile
@@ -36,11 +36,11 @@ services:
       wrapper:
         condition: service_healthy
     environment:
-      MANAGER_TOKEN: ${MANAGER_TOKEN:-am-download-internal}
-      AM_DOWNLOAD_PASSWORD: ${AM_DOWNLOAD_PASSWORD:-}
-      TZ: ${TZ:-Asia/Shanghai}
+      MANAGER_TOKEN: change-this-manager-token
+      AM_DOWNLOAD_PASSWORD: change-this-password
+      TZ: Asia/Shanghai
     ports:
-      - "${AM_DOWNLOAD_BIND:-127.0.0.1}:${AM_DOWNLOAD_PORT:-8080}:8080"
+      - "127.0.0.1:8333:8080"
     volumes:
       - app-data:/data
       - downloads:/downloads
